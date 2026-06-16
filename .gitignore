@@ -1,0 +1,13 @@
+# секреты и локальные данные — не коммитить
+.tinvest_token
+data.sqlite3
+_model_dump.txt
+_emiss_meta.json
+_emiss_page.html
+
+# python
+__pycache__/
+*.pyc
+.pytest_cache/
+.venv/
+venv/

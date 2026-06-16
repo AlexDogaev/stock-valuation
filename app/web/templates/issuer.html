@@ -1,0 +1,131 @@
+{% extends "base.html" %}
+{% block content %}
+<p class="sub"><a href="/">← Скринер</a></p>
+<div id="card"><p class="muted">Загрузка…</p></div>
+{% endblock %}
+{% block scripts %}
+<script>
+const SECID = "{{ secid }}";
+
+function kv(k, v, src) {
+  return `<div class="kv"><span class="k">${k}</span><span><span class="v">${v}</span>${src ? ` <span class="src">${src}</span>` : ""}</span></div>`;
+}
+
+function render(x) {
+  const i = x.inputs, s = x.structural, c = x.calc;
+  const dims = [["Ров","moat"],["Дизрупция","disruption"],["Секул.TAM","tam"],
+                ["Регуляторика","regulation"],["Демо","demo"],["Госнавес*","gosnaves"]];
+  const chips = dims.map(([lbl,k]) =>
+    `<span class="chip">${lbl}: <b>${s[k]>=0?"+":""}${s[k]}</b></span>`).join("");
+
+  let mature = "";
+  if (x.mature && !x.mature.error) {
+    const m = x.mature;
+    mature = `<div class="panel"><h2>Зрелая оценка (P/B = (ROE−g)/(r−g))</h2><div class="grid">
+      <div>${kv("Справедливый P/B", num(m.fair_pb))}${kv("Текущий P/B", num(m.current_pb))}
+           ${kv("Справедливая капа", num(m.fair_cap_bln,0)+" млрд")}${kv("Вердикт", m.verdict)}</div>
+      <div>${kv("Implied номинальная", pct(m.implied_nominal))}${kv("Implied реальная", pct(m.implied_real))}
+           ${kv("Спред r−g", pct(m.spread)+" ("+m.confidence+")")}
+           ${kv("Нужная просадка под hurdle", m.needed_drawdown===null?"—":pctSigned(m.needed_drawdown))}</div>
+    </div></div>`;
+  } else if (x.mature && x.mature.error) {
+    mature = `<div class="warn">Зрелая оценка: ${x.mature.error}</div>`;
+  }
+
+  let cls = "";
+  if (x.classification) {
+    const k = x.classification;
+    cls = `<div class="panel"><h2>Классификация (структурный профиль)</h2><div class="grid">
+      <div>${kv("Детальный тип", k.detailed)}${kv("Упрощённый (SPEC)", k.simple)}${kv("Режим оценки", k.regime)}</div>
+      <div>${kv("ROIC − WACC", pct(k.roic_minus_wacc))}${kv("Фаза роста N", k.phase_n+" лет")}${kv("Терм. ставка r", pct(k.terminal_r))}</div>
+    </div></div>`;
+  }
+
+  const f = x.forecast;
+  const fcast = `<div class="panel"><h2>Прогноз на ${f.years} года</h2><div class="grid">
+    <div>${kv("Текущая цена", f.price_now!==null?f.price_now+" ₽":"—")}
+         ${kv("Прогнозная цена через "+f.years+" г", f.price_target!==null?f.price_target+" ₽":"—", "проекция тела")}
+         ${kv("Апсайд цены (котировка)", pctSigned(f.price_upside), "без дивидендов")}</div>
+    <div>${kv("Полная доходность за "+f.years+" г", pctSigned(f.total_return), "с дивидендами")}
+         ${kv("Реальная за "+f.years+" г", pctSigned(f.real_return), "над инфляцией")}
+         ${kv("Ценовой рост, %/год", pct(f.price_cagr))}</div>
+    </div>
+    <p class="sub">Цена котировки растёт на рост тела × сжатие мультипликатора — дивиденды в неё НЕ входят
+      (они выплачиваются). Полная доходность включает дивиденды.</p></div>`;
+
+  const warns = (x.warnings||[]).map(w => `<div class="warn">${w}</div>`).join("");
+
+  document.getElementById("card").innerHTML = `
+    <h1>${x.name} <small class="muted">${x.secid} · ${x.sector||""}</small> ${sigBadge(x.signal)}</h1>
+    <p class="sub">Реальная доходность над дефлятором: <b>${pctSigned(x.real_return)}</b>
+      ${x.type ? "· тип: "+x.type : ""}</p>
+
+    <div class="panel"><h2>Рыночные данные</h2><div class="grid">
+      <div>${kv("Цена бумаги", x.market.price!==null?x.market.price+" ₽":"—", "MOEX "+(x.market.fetched_at||""))}
+           ${kv("Капитализация", x.market.cap_bln!==null?x.market.cap_bln+" млрд ₽":"—", "MOEX")}
+           ${kv("Чистая прибыль TTM", x.market.net_profit_bln!==null?x.market.net_profit_bln+" млрд":"—", "T-Invest")}
+           ${kv("Собств. капитал", x.market.equity_bln!==null?x.market.equity_bln+" млрд":"—", "T-Invest")}</div>
+      <div>${kv("P/E", x.market.pe!==null?x.market.pe:(x.market.loss?"убыток":"н/д"), x.market.pe_source||"нет прибыли в данных")}
+           ${kv("P/B", x.market.pb!==null?x.market.pb:"н/д", x.market.pb!==null?"капа / капитал":(x.market.negative_equity?"отриц. капитал":"нет капитала"))}</div>
+    </div></div>
+
+    <div class="panel"><h2>Входные метрики (с источником)</h2><div class="grid">
+      <div>${kv("Цена", i.price.value!==null?i.price.value+" ₽":"—", i.price.source+" "+(i.price.date||""))}
+           ${kv("Капитализация", i.cap_bln.value!==null?i.cap_bln.value+" млрд":"—", i.cap_bln.source)}
+           ${kv("Дивдоходность" + (i.div_yield.spike ? ' ⚠' : ''), pct(i.div_yield.value) + (i.div_yield.spike ? ` <span class="muted">(норма ≈${pct(i.div_yield.typical)})</span>` : ''), i.div_yield.source)}</div>
+      <div>${kv("g базовый", pct(i.g_base.value), i.g_base.source)}
+           ${kv("Сжатие мультипл.", num(i.compression.value), i.compression.source)}
+           ${kv("ROE", i.roe.value!==null?pct(i.roe.value):"—", i.roe.source)}
+           ${kv("Payout", i.payout.value!==null?pct(i.payout.value):"—", i.payout.source)}
+           ${kv("Требуемая r", pct(i.r_required.value), i.r_required.source)}</div>
+    </div></div>
+
+    <div class="panel"><h2>Структурный слой</h2>
+      <div class="score-row">${chips}</div>
+      <p class="sub" style="margin-top:10px">Балл (5 осей, госнавес* — отдельно, правило «один раз»):
+        <b>${s.score}</b> · зона <b>${s.zone}</b> · множитель к g <b>${num(s.multiplier,2)}</b>
+        ${s.detailed?"":" <span class='muted'>(множитель из seed, баллы не детализированы)</span>"}</p>
+      ${(s.warnings||[]).map(w=>`<div class="warn">${w}</div>`).join("")}
+      ${s.note?`<p class="muted">${s.note}</p>`:""}
+    </div>
+
+    <div class="panel"><h2>Как посчитан сигнал (цепочка)</h2><div class="grid">
+      <div>${kv("g базовый × структ.множ", pct(i.g_base.value)+" × "+num(s.multiplier,2))}
+           ${kv("= g итог", pct(c.g_final))}
+           ${kv("× сжатие", num(c.compression))}
+           ${kv("+ дивдоходность", pct(i.div_yield.value))}</div>
+      <div>${kv("= Полная номинальная", pct(c.full_nominal))}
+           ${kv("÷ (1+дефлятор)", pct(c.deflator))}
+           ${kv("= Реальная доходность", pctSigned(c.real))}
+           ${kv("Достоверность (r−g)", c.confidence||"—")}</div>
+    </div></div>
+
+    ${fcast}
+    ${cls}
+    ${mature}
+    ${warns}
+
+    <div class="panel"><h2>✎ Структурные баллы (экспертная админка)</h2>
+      <p class="sub">−2 угроза … +2 попутно. Демо — детерминирован (жёстко); дизрупция — гадание (скромно).
+        Госнавес учитывать ОДИН раз (не дублировать, если уже в низком g).</p>
+      <div class="grid" id="edit">
+        ${dims.map(([lbl,k])=>`<div><label>${lbl}</label>
+           <input type="number" min="-2" max="2" step="1" id="f-${k}" value="${s[k]}"></div>`).join("")}
+      </div>
+      <div style="margin-top:12px"><button id="save">Сохранить и пересчитать</button>
+        <span id="saved" class="muted" style="margin-left:10px"></span></div>
+    </div>`;
+
+  document.getElementById("save").addEventListener("click", async () => {
+    const body = {};
+    dims.forEach(([_,k]) => body[k] = parseInt(document.getElementById("f-"+k).value)||0);
+    const res = await sendJSON(`/issuers/${SECID}/structural`, "PUT", body);
+    document.getElementById("saved").textContent = "Сохранено ✓";
+    render(res);
+  });
+}
+
+getJSON("/issuers/" + SECID).then(render).catch(e =>
+  document.getElementById("card").innerHTML = `<div class="warn">Ошибка: ${e.message}</div>`);
+</script>
+{% endblock %}

@@ -1,0 +1,180 @@
+"""SQLite — хранилище эмитентов, финансов, структурных баллов, настроек.
+
+Расчётные величины (доходность, сигнал) НЕ хранятся — считаются на лету из
+ядра, чтобы смена настроек пользователя сразу отражалась (SPEC §5).
+Кэшируется только тяжёлое (рыночные снимки, история).
+"""
+from __future__ import annotations
+
+import sqlite3
+from contextlib import contextmanager
+from typing import Any, Iterator
+
+from app.config import DB_PATH, DEFAULTS
+
+SCHEMA = """
+CREATE TABLE IF NOT EXISTS issuers (
+    secid       TEXT PRIMARY KEY,
+    shortname   TEXT,
+    latname     TEXT,
+    sector      TEXT,
+    board       TEXT DEFAULT 'TQBR',
+    issuesize   REAL,
+    is_pref     INTEGER DEFAULT 0
+);
+
+-- снимок рыночных данных (последний из MOEX), для верифицируемости — с датой
+CREATE TABLE IF NOT EXISTS market_data (
+    secid       TEXT PRIMARY KEY,
+    price       REAL,
+    cap         REAL,
+    div_yield   REAL,
+    div_typical REAL,           -- типичная годовая дивдох (медиана по годам)
+    div_spike   INTEGER DEFAULT 0,  -- 1 = TTM аномально выше нормы (спецдив?)
+    fetched_at  TEXT,
+    FOREIGN KEY (secid) REFERENCES issuers(secid)
+);
+
+CREATE TABLE IF NOT EXISTS dividends (
+    secid     TEXT,
+    reg_date  TEXT,
+    value     REAL,
+    currency  TEXT,
+    PRIMARY KEY (secid, reg_date)
+);
+
+-- уровень 2 + параметры модели (ручной ввод / seed из Excel)
+CREATE TABLE IF NOT EXISTS financials (
+    secid           TEXT PRIMARY KEY,
+    period          TEXT,
+    net_profit      REAL,
+    equity          REAL,
+    roe             REAL,
+    payout          REAL,
+    g_base          REAL,       -- базовый рост g
+    compression     REAL,       -- сжатие мультипликатора (зрелый=1)
+    revenue_growth  REAL,
+    roic            REAL,
+    wacc            REAL,
+    body_trend      INTEGER,    -- 1/0/-1
+    is_resource     INTEGER DEFAULT 0,
+    is_rentier      INTEGER DEFAULT 0,
+    etype           TEXT,       -- структурный тип-ярлык
+    source          TEXT,
+    updated_at      TEXT,
+    FOREIGN KEY (secid) REFERENCES issuers(secid)
+);
+
+-- структурные баллы (экспертное суждение, не из API)
+CREATE TABLE IF NOT EXISTS structural (
+    secid       TEXT PRIMARY KEY,
+    moat        INTEGER DEFAULT 0,
+    disruption  INTEGER DEFAULT 0,
+    tam         INTEGER DEFAULT 0,
+    regulation  INTEGER DEFAULT 0,
+    demo        INTEGER DEFAULT 0,
+    gosnaves    INTEGER DEFAULT 0,
+    mult_seed   REAL,        -- множитель из ТОП-25, когда детальных баллов нет
+    note        TEXT,
+    updated_by  TEXT,
+    updated_at  TEXT,
+    FOREIGN KEY (secid) REFERENCES issuers(secid)
+);
+
+CREATE TABLE IF NOT EXISTS macro (
+    id              INTEGER PRIMARY KEY CHECK (id = 1),
+    key_rate        REAL,
+    cpi_official    REAL,
+    cpi_smoothed    REAL,
+    ofz_long_yield  REAL,
+    updated_at      TEXT
+);
+
+CREATE TABLE IF NOT EXISTS user_settings (
+    id                INTEGER PRIMARY KEY CHECK (id = 1),
+    hurdle            REAL,
+    buffer            REAL,
+    regime            TEXT,
+    risk_premium      REAL,
+    deflator_preset   TEXT,
+    rosstat_current   REAL,
+    rosstat_smoothed  REAL,
+    basket_json       TEXT     -- корзина личной инфляции (JSON)
+);
+
+CREATE TABLE IF NOT EXISTS portfolio (
+    secid   TEXT PRIMARY KEY,
+    weight  REAL,
+    FOREIGN KEY (secid) REFERENCES issuers(secid)
+);
+"""
+
+
+def connect() -> sqlite3.Connection:
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA foreign_keys = ON")
+    return conn
+
+
+@contextmanager
+def get_db() -> Iterator[sqlite3.Connection]:
+    conn = connect()
+    try:
+        yield conn
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def _ensure_column(db, table: str, col: str, decl: str) -> None:
+    """Лёгкая миграция: добавить колонку, если её ещё нет."""
+    cols = {r["name"] for r in db.execute(f"PRAGMA table_info({table})")}
+    if col not in cols:
+        db.execute(f"ALTER TABLE {table} ADD COLUMN {col} {decl}")
+
+
+def init_db() -> None:
+    with get_db() as db:
+        db.executescript(SCHEMA)
+        # миграции для БД, созданных более ранней схемой
+        _ensure_column(db, "market_data", "div_typical", "REAL")
+        _ensure_column(db, "market_data", "div_spike", "INTEGER DEFAULT 0")
+        _ensure_column(db, "user_settings", "forecast_years", "INTEGER DEFAULT 3")
+        # дефолтные настройки (single user, id=1)
+        row = db.execute("SELECT id FROM user_settings WHERE id = 1").fetchone()
+        if row is None:
+            db.execute(
+                """INSERT INTO user_settings
+                   (id, hurdle, buffer, regime, risk_premium, deflator_preset,
+                    rosstat_current, rosstat_smoothed, basket_json)
+                   VALUES (1, ?, ?, ?, ?, ?, ?, ?, NULL)""",
+                (DEFAULTS["hurdle"], DEFAULTS["buffer"], DEFAULTS["regime"],
+                 DEFAULTS["risk_premium"], DEFAULTS["deflator_preset"],
+                 DEFAULTS["rosstat_current"], DEFAULTS["rosstat_smoothed"]),
+            )
+        if db.execute("SELECT id FROM macro WHERE id = 1").fetchone() is None:
+            db.execute(
+                """INSERT INTO macro (id, key_rate, cpi_official, cpi_smoothed,
+                   ofz_long_yield, updated_at)
+                   VALUES (1, 0.145, ?, ?, 0.14, datetime('now'))""",
+                (DEFAULTS["rosstat_current"], DEFAULTS["rosstat_smoothed"]),
+            )
+
+
+# ── helpers ───────────────────────────────────────────────────────────────────
+def upsert(db: sqlite3.Connection, table: str, data: dict[str, Any], pk: str) -> None:
+    cols = ", ".join(data.keys())
+    ph = ", ".join("?" for _ in data)
+    updates = ", ".join(f"{k}=excluded.{k}" for k in data if k != pk)
+    sql = (f"INSERT INTO {table} ({cols}) VALUES ({ph}) "
+           f"ON CONFLICT({pk}) DO UPDATE SET {updates}")
+    db.execute(sql, tuple(data.values()))
+
+
+def get_settings(db: sqlite3.Connection) -> dict:
+    return dict(db.execute("SELECT * FROM user_settings WHERE id = 1").fetchone())
+
+
+def get_macro(db: sqlite3.Connection) -> dict:
+    return dict(db.execute("SELECT * FROM macro WHERE id = 1").fetchone())

@@ -1,0 +1,88 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>Калькуляторы модели</h1>
+<p class="sub">Все режимы оценки из Excel-модели. Значения по умолчанию — якорные кейсы (Сбер, Яндекс, Ozon, X5, Лукойл).</p>
+<div class="tabs" id="tabs"></div>
+<div class="panel">
+  <div class="grid" id="form"></div>
+  <div style="margin-top:12px"><button id="run">Рассчитать</button></div>
+</div>
+<div id="result"></div>
+{% endblock %}
+{% block scripts %}
+<script>
+const CALC = {
+  "Барбелл": { ep: "barbell", fields: {
+    attack_share: 0.5, base: 0.05, defense_return: 0.0, shock_share: 0.4, shock_return: 0.18, target: 0.05 }},
+  "Зрелый режим": { ep: "maturity", fields: {
+    roe: 0.227, g: 0.08, r: 0.21, payout: 0.5, equity: 7500, current_cap: 7200, deflator: 0.145, hurdle_real: 0.07 }},
+  "Growth калибр.": { ep: "growth_calibrated", fields: {
+    earnings: 141, growth_phase: 0.2, roic: 0.4, wacc: 0.2, terminal_g: 0.09, payout: 0.6,
+    current_cap: 1590, sbc_dilution: 0.08, deflator: 0.145 }},
+  "SOTP (Ozon)": { ep: "sotp", fields: {
+    non_fintech_profit: 80, non_fintech_pe: 6, fintech_profit: 49, fintech_capital: 130,
+    fintech_g: 0.15, fintech_r: 0.24, corporate_debt: 120, conglomerate_discount: 0.15, current_cap: 816 }},
+  "Леверидж/ROIC": { ep: "leverage", fields: {
+    ebit: 230, tax_rate: 0.25, invested_capital: 600, interest_expense: 15, net_debt: 330,
+    ebitda: 280, cost_of_debt: 0.18, wacc: 0.2, horizon_years: 10, going_concern_cap: 832 }},
+  "Тренд тела": { ep: "body_trend", fields: {
+    revenue_old: 8000, revenue_last: 8600, years: 4, capex: 700, depreciation: 650,
+    roic_old: 0.18, roic_last: 0.15, avg_inflation: 0.09, is_resource: 1 }},
+  "Личная инфляция": { ep: "inflation", fields: { rosstat_current: 0.118, rosstat_smoothed: 0.07 }},
+};
+let current = "Барбелл";
+
+document.getElementById("tabs").innerHTML = Object.keys(CALC).map(k =>
+  `<button data-k="${k}" class="${k===current?"active":""}">${k}</button>`).join("");
+
+function buildForm() {
+  const f = CALC[current].fields;
+  document.getElementById("form").innerHTML = Object.entries(f).map(([k, v]) =>
+    `<div><label>${k}</label><input type="number" step="any" id="in-${k}" value="${v}"></div>`).join("");
+  document.getElementById("result").innerHTML = "";
+}
+
+function fmtVal(k, v) {
+  if (v === null || v === undefined) return "—";
+  if (typeof v === "boolean") return v ? "да" : "нет";
+  if (typeof v === "string") return v;
+  if (typeof v === "object") return JSON.stringify(v);
+  // эвристика: доли в [-1.5, 1.5] не целые → проценты
+  if (Math.abs(v) <= 1.5 && !Number.isInteger(v)) return num(v, 4) + " (" + pct(v) + ")";
+  return num(v, 2);
+}
+
+function renderResult(obj) {
+  const rows = Object.entries(obj).map(([k, v]) => {
+    if (k === "signal" || k === "verdict") return `<div class="kv"><span class="k">${k}</span><span>${sigBadge ? (["ПОКУПАЙ","ГРАНИЦА","ВОЗДЕРЖИСЬ"].includes(v)?sigBadge(v):`<b>${v}</b>`) : v}</span></div>`;
+    if (Array.isArray(v)) return `<div class="kv"><span class="k">${k}</span><span class="v" style="text-align:right">${v.map(x=>typeof x==="object"?JSON.stringify(x):x).join("<br>")}</span></div>`;
+    if (v && typeof v === "object") return `<div class="kv"><span class="k">${k}</span><span class="v">${Object.entries(v).map(([a,b])=>a+": "+fmtVal(a,b)).join(" · ")}</span></div>`;
+    return `<div class="kv"><span class="k">${k}</span><span class="v">${fmtVal(k, v)}</span></div>`;
+  }).join("");
+  document.getElementById("result").innerHTML = `<div class="panel"><h2>Результат</h2><div class="grid"><div>${rows}</div></div></div>`;
+}
+
+async function run() {
+  const f = CALC[current].fields;
+  const body = {};
+  Object.keys(f).forEach(k => body[k] = parseFloat(document.getElementById("in-"+k).value));
+  if (current === "Тренд тела") { body.is_resource = body.is_resource ? 1 : 0; body.years = Math.round(body.years); }
+  if (current === "Леверидж/ROIC") body.horizon_years = Math.round(body.horizon_years);
+  try {
+    const r = await sendJSON("/calc/" + CALC[current].ep, "POST", body);
+    renderResult(r);
+  } catch (e) {
+    document.getElementById("result").innerHTML = `<div class="warn">Ошибка: ${e.message}</div>`;
+  }
+}
+
+document.getElementById("tabs").addEventListener("click", e => {
+  if (!e.target.dataset.k) return;
+  current = e.target.dataset.k;
+  document.querySelectorAll("#tabs button").forEach(b => b.classList.toggle("active", b.dataset.k === current));
+  buildForm();
+});
+document.getElementById("run").addEventListener("click", run);
+buildForm();
+</script>
+{% endblock %}

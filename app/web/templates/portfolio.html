@@ -1,0 +1,54 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>Портфель — факторный риск (Aladdin-слой)</h1>
+<p class="sub">Несколько имён одного сектора = не диверсификация, а одна ставка с общим бета. Загрузки — качественный каркас.</p>
+
+<div class="panel"><h2>Состав (равные или заданные веса)</h2>
+  <div id="picker" class="score-row"></div>
+  <p class="sub" style="margin-top:10px">Отметь бумаги (равные веса) или впиши веса вручную.</p>
+  <button id="apply">Построить разложение</button>
+</div>
+
+<div id="out"></div>
+{% endblock %}
+{% block scripts %}
+<script>
+let ISSUERS = [];
+async function loadPicker() {
+  const d = await getJSON("/issuers");
+  ISSUERS = d.issuers;
+  document.getElementById("picker").innerHTML = ISSUERS.map(x =>
+    `<label class="chip" style="cursor:pointer"><input type="checkbox" value="${x.secid}"> ${x.name}</label>`
+  ).join("");
+  // дефолтный портфель из листа Aladdin
+  ["SBER","T","SVCB","BSPB","X5","MDMG","TRNFP"].forEach(s => {
+    const cb = document.querySelector(`#picker input[value="${s}"]`); if (cb) cb.checked = true;
+  });
+}
+function bar(v) { return `<div class="bar"><span style="width:${Math.min(100,v*100)}%"></span></div>`; }
+
+async function build() {
+  const checked = [...document.querySelectorAll("#picker input:checked")].map(c => c.value);
+  if (!checked.length) { document.getElementById("out").innerHTML = `<div class="warn">Выбери хотя бы одну бумагу.</div>`; return; }
+  const weights = {}; checked.forEach(s => weights[s] = 1 / checked.length);
+  const d = await sendJSON("/portfolio", "POST", { weights });
+  const conc = Object.entries(d.concentration)
+    .map(([f, v]) => `<div class="kv"><span class="k">${f} ${f===d.dominant_factor?"⬅ доминирует":""}</span>
+       <span style="flex:1;margin:0 10px">${bar(v)}</span><span class="v">${num(v,2)}</span></div>`).join("");
+  const stress = d.stress.map(s =>
+    `<tr><td>${s.scenario}</td><td class="num">${s.quant_reaction===null?"кач.":pctSigned(s.quant_reaction)}</td>
+     <td class="muted" style="text-align:left">${s.driver}</td></tr>`).join("");
+  const flags = [...d.factor_flags, ...d.sector_flags].map(f => `<div class="warn">${f}</div>`).join("");
+  document.getElementById("out").innerHTML = `
+    <div class="panel"><h2>Концентрация по факторам</h2>${conc}</div>
+    ${flags ? `<div class="panel"><h2>Флаги концентрации</h2>${flags}</div>` : ""}
+    <div class="panel"><h2>Стресс-тест</h2>
+      <table><thead><tr><th>Сценарий</th><th>Реакция</th><th style="text-align:left">Главный драйвер</th></tr></thead>
+      <tbody>${stress}</tbody></table>
+      <p class="sub" style="margin-top:8px">Количественная реакция рыночного шока — грубо через РФ-бету; точные беты — регрессия на истории MOEX.</p>
+    </div>`;
+}
+document.getElementById("apply").addEventListener("click", build);
+loadPicker().then(build);
+</script>
+{% endblock %}

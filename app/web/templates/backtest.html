@@ -1,0 +1,53 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>Backtest — проверка на истории MOEX</h1>
+<p class="sub">Predicted — implied доходность модели на исторической цене. Realized — фактический номинальный CAGR (цена тогда → сегодня + дивиденды), данные MOEX.</p>
+
+<div class="panel">
+  <label style="display:inline">Горизонты (годы, через запятую)</label>
+  <input type="text" id="years" value="1,2,3" style="width:120px;display:inline-block">
+  <button id="run">Прогнать по истории MOEX</button>
+  <span id="status" class="muted" style="margin-left:10px"></span>
+</div>
+
+<div id="warn"></div>
+<div id="summary"></div>
+<div class="panel" style="padding:0;overflow:hidden">
+  <table>
+    <thead><tr><th>Кейс</th><th>Predicted (модель)</th><th>Realized (факт)</th><th>Ошибка, п.п.</th><th>В пределах 5 п.п.</th></tr></thead>
+    <tbody id="rows"><tr><td colspan="5" class="muted">Нажми «Прогнать».</td></tr></tbody>
+  </table>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+async function run() {
+  const years = document.getElementById("years").value;
+  document.getElementById("status").textContent = "Тяну историю MOEX (это ~20-30 сек)…";
+  document.getElementById("run").disabled = true;
+  try {
+    const d = await getJSON("/backtest?years=" + encodeURIComponent(years));
+    document.getElementById("warn").innerHTML = `<div class="warn"><b>Допущение:</b> ${d.assumption}</div>`;
+    document.getElementById("summary").innerHTML = `<div class="panel"><h2>Сводка</h2>
+      <div class="kv"><span class="k">Кейсов</span><span class="v">${d.cases.length}</span></div>
+      <div class="kv"><span class="k">Средняя ошибка</span><span class="v">${num(d.mean_error_pp,1)} п.п.</span></div>
+      <div class="kv"><span class="k">Разброс (σ)</span><span class="v">${num(d.std_error_pp,1)} п.п.</span></div>
+      <div class="kv"><span class="k">Попаданий (±5 п.п.)</span><span class="v">${pct(d.hit_rate)}</span></div>
+      <div class="kv"><span class="k">Вердикт</span><span class="v">${d.verdict}</span></div></div>`;
+    document.getElementById("rows").innerHTML = d.cases.map(c => `
+      <tr><td>${c.label}</td>
+        <td class="num">${pct(c.predicted)}</td>
+        <td class="num">${pctSigned(c.realized)}</td>
+        <td class="num">${num(c.error_pp,1)}</td>
+        <td>${c.hit ? '<span class="sig buy">да</span>' : '<span class="sig avoid">мимо</span>'}</td></tr>`).join("");
+    document.getElementById("status").textContent = `Готово. Пропущено: ${(d.skipped||[]).join(", ")||"—"}`;
+  } catch (e) {
+    document.getElementById("status").textContent = "Ошибка: " + e.message;
+  } finally {
+    document.getElementById("run").disabled = false;
+  }
+}
+document.getElementById("run").addEventListener("click", run);
+run();
+</script>
+{% endblock %}

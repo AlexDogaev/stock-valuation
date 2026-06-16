@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ title }} · Оценка акций MOEX</title>
+  <link rel="stylesheet" href="/static/app.css">
+  <script src="/static/app.js"></script>
+  {% block head %}{% endblock %}
+</head>
+<body>
+  <header>
+    <span class="brand">📊 Оценка акций · MOEX</span>
+    <nav>
+      <a href="/">Скринер</a>
+      <a href="/portfolio">Портфель</a>
+      <a href="/calculators">Калькуляторы</a>
+      <a href="/backtest">Backtest</a>
+      <a href="/settings">Настройки</a>
+    </nav>
+    <span class="spacer"></span>
+    <span class="ctl">Режим
+      <select id="g-regime">
+        <option value="спокойное">спокойное</option>
+        <option value="ШОК">ШОК</option>
+      </select>
+    </span>
+    <span class="ctl">Дефлятор
+      <select id="g-deflator">
+        <option value="тактический">тактический</option>
+        <option value="стратегический">стратегический</option>
+      </select>
+      <span id="g-deflator-val" class="muted"></span>
+    </span>
+    <span class="ctl">Горизонт
+      <select id="g-horizon">
+        <option value="1">1 год</option>
+        <option value="3">3 года</option>
+        <option value="5">5 лет</option>
+      </select>
+    </span>
+  </header>
+  <main>
+    {% block content %}{% endblock %}
+    <p class="disc">⚠ {{ disclaimer }}</p>
+  </main>
+  {% block scripts %}{% endblock %}
+</body>
+</html>

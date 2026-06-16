@@ -1,0 +1,102 @@
+{% extends "base.html" %}
+{% block content %}
+<div style="display:flex;align-items:flex-start;justify-content:space-between;gap:16px">
+  <div>
+    <h1>Скринер эмитентов</h1>
+    <p class="sub">Троичный сигнал под твои настройки. Полная = (1+g_итог)·сжатие − 1 + дивдох; реальная — над личным дефлятором.</p>
+  </div>
+  <button class="ghost" id="refresh" style="flex:none">↻ Обновить котировки MOEX</button>
+</div>
+<div class="panel" style="padding:0;overflow:hidden">
+  <table id="tbl">
+    <thead>
+      <tr>
+        <th data-k="name">Эмитент</th>
+        <th data-k="sector">Сектор</th>
+        <th data-k="price">Цена, ₽</th>
+        <th data-k="cap">Капа, млрд</th>
+        <th data-k="pe">P/E</th>
+        <th data-k="div">Дивдох</th>
+        <th data-k="gf">g итог</th>
+        <th data-k="comp">Сжатие</th>
+        <th data-k="nom">Полная</th>
+        <th data-k="real">Реал.</th>
+        <th data-k="target" title="Прогнозная цена котировки через 3 года">Цель 3г, ₽</th>
+        <th data-k="upside" title="Рост котировки за 3 года (без дивидендов)">Апсайд 3г</th>
+        <th data-k="mult">Структ.×</th>
+        <th data-k="sig">Сигнал</th>
+      </tr>
+    </thead>
+    <tbody id="rows"><tr><td colspan="14" class="muted">Загрузка…</td></tr></tbody>
+  </table>
+</div>
+<p class="sub" id="meta"></p>
+{% endblock %}
+{% block scripts %}
+<script>
+let DATA = [];
+let sortKey = "real", sortDir = -1;
+
+function render() {
+  const get = {
+    name: x => x.name, sector: x => x.sector || "",
+    price: x => x.market.price, cap: x => x.market.cap_bln, pe: x => x.market.pe,
+    div: x => x.inputs.div_yield.value, gf: x => x.calc.g_final,
+    comp: x => x.calc.compression, nom: x => x.calc.full_nominal,
+    real: x => x.real_return,
+    target: x => x.forecast.price_target, upside: x => x.forecast.price_upside,
+    mult: x => x.structural.multiplier,
+    sig: x => x.signal,
+  };
+  DATA.sort((a, b) => {
+    const va = get[sortKey](a), vb = get[sortKey](b);
+    if (typeof va === "string") return sortDir * va.localeCompare(vb, "ru");
+    return sortDir * ((va ?? -99) - (vb ?? -99));
+  });
+  document.getElementById("rows").innerHTML = DATA.map(x => `
+    <tr>
+      <td><a href="/issuer/${x.secid}">${x.name}</a> <small class="muted">${x.secid}</small></td>
+      <td class="muted">${x.sector || ""}</td>
+      <td class="num">${x.market.price !== null ? x.market.price.toLocaleString("ru") : "—"}</td>
+      <td class="num">${x.market.cap_bln !== null ? Math.round(x.market.cap_bln).toLocaleString("ru") : "—"}</td>
+      <td class="num">${x.market.pe !== null ? x.market.pe : "<span class='muted'>н/д</span>"}</td>
+      <td class="num">${pct(x.inputs.div_yield.value)}${x.inputs.div_yield.spike ? ' <span title="TTM-аномалия: вероятно разовый спецдивиденд" style="color:var(--edge)">⚠</span>' : ''}</td>
+      <td class="num">${pct(x.calc.g_final)}</td>
+      <td class="num">${num(x.calc.compression)}</td>
+      <td class="num">${pct(x.calc.full_nominal)}</td>
+      <td class="num">${pctSigned(x.real_return)}</td>
+      <td class="num">${x.forecast.price_target !== null ? Math.round(x.forecast.price_target).toLocaleString("ru") : "—"}</td>
+      <td class="num">${pctSigned(x.forecast.price_upside)}</td>
+      <td class="num">${num(x.structural.multiplier, 2)}</td>
+      <td>${sigBadge(x.signal)}</td>
+    </tr>`).join("");
+}
+
+async function load() {
+  const d = await getJSON("/issuers");
+  DATA = d.issuers;
+  const yrs = DATA.length ? DATA[0].forecast.years : 3;
+  const thT = document.querySelector('th[data-k="target"]');
+  const thU = document.querySelector('th[data-k="upside"]');
+  if (thT) thT.textContent = `Цель ${yrs}г, ₽`;
+  if (thU) thU.textContent = `Апсайд ${yrs}г`;
+  document.getElementById("meta").textContent =
+    `${d.count} эмитентов. ${DATA.filter(x=>x.signal==="ПОКУПАЙ").length} ПОКУПАЙ · ` +
+    `${DATA.filter(x=>x.signal==="ГРАНИЦА").length} ГРАНИЦА · ` +
+    `${DATA.filter(x=>x.signal==="ВОЗДЕРЖИСЬ").length} ВОЗДЕРЖИСЬ`;
+  render();
+}
+
+document.querySelectorAll("th[data-k]").forEach(th => th.addEventListener("click", () => {
+  const k = th.dataset.k;
+  if (sortKey === k) sortDir = -sortDir; else { sortKey = k; sortDir = -1; }
+  render();
+}));
+document.getElementById("refresh").addEventListener("click", async (e) => {
+  e.target.textContent = "Обновляю…"; e.target.disabled = true;
+  try { await sendJSON("/refresh", "POST", {}); await load(); }
+  finally { e.target.textContent = "↻ Обновить котировки MOEX"; e.target.disabled = false; }
+});
+load();
+</script>
+{% endblock %}

@@ -1,0 +1,21 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "stock-valuation",
+      "runtimeExecutable": "python",
+      "runtimeArgs": [
+        "-m",
+        "uvicorn",
+        "app.main:app",
+        "--app-dir",
+        "C:\\Users\\user\\Desktop\\stock-valuation",
+        "--host",
+        "127.0.0.1",
+        "--port",
+        "8099"
+      ],
+      "port": 8099
+    }
+  ]
+}

@@ -1,0 +1,85 @@
+:root {
+  --bg: #0f1216;
+  --panel: #171c22;
+  --panel-2: #1e252d;
+  --line: #2a323c;
+  --text: #e6eaef;
+  --muted: #9aa6b2;
+  --accent: #5b9dff;
+  --buy: #2ecc71;
+  --buy-bg: rgba(46,204,113,.13);
+  --edge: #f1c40f;
+  --edge-bg: rgba(241,196,15,.12);
+  --avoid: #e9614e;
+  --avoid-bg: rgba(233,97,78,.12);
+  --mono: ui-monospace, "SF Mono", "Cascadia Code", Consolas, monospace;
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0; background: var(--bg); color: var(--text);
+  font: 14px/1.5 -apple-system, "Segoe UI", Roboto, sans-serif;
+}
+a { color: var(--accent); text-decoration: none; }
+a:hover { text-decoration: underline; }
+
+header {
+  display: flex; align-items: center; gap: 22px; flex-wrap: wrap;
+  padding: 12px 24px; background: var(--panel); border-bottom: 1px solid var(--line);
+  position: sticky; top: 0; z-index: 10;
+}
+header .brand { font-weight: 700; letter-spacing: .2px; }
+header nav { display: flex; gap: 16px; }
+header nav a { color: var(--muted); font-weight: 500; }
+header nav a.active, header nav a:hover { color: var(--text); }
+header .spacer { flex: 1; }
+header .ctl { display: flex; align-items: center; gap: 6px; font-size: 13px; color: var(--muted); }
+header select, header input {
+  background: var(--panel-2); color: var(--text); border: 1px solid var(--line);
+  border-radius: 6px; padding: 4px 8px; font-size: 13px;
+}
+
+main { padding: 22px 24px 60px; max-width: 1240px; margin: 0 auto; }
+h1 { font-size: 20px; margin: 0 0 4px; }
+h2 { font-size: 15px; margin: 22px 0 10px; color: var(--text); }
+.sub { color: var(--muted); font-size: 13px; margin: 0 0 18px; }
+
+table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+th, td { padding: 8px 10px; text-align: right; border-bottom: 1px solid var(--line); }
+th:first-child, td:first-child { text-align: left; }
+th { color: var(--muted); font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: .4px; cursor: pointer; user-select: none; }
+tbody tr:hover { background: var(--panel); }
+td.num { font-family: var(--mono); }
+
+.sig { display: inline-block; padding: 2px 9px; border-radius: 999px; font-size: 12px; font-weight: 700; }
+.sig.buy { color: var(--buy); background: var(--buy-bg); }
+.sig.edge { color: var(--edge); background: var(--edge-bg); }
+.sig.avoid { color: var(--avoid); background: var(--avoid-bg); }
+
+.pos { color: var(--buy); }
+.neg { color: var(--avoid); }
+
+.panel { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 16px 18px; margin-bottom: 16px; }
+.grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; }
+.kv { display: flex; justify-content: space-between; gap: 10px; padding: 5px 0; border-bottom: 1px dashed var(--line); }
+.kv .k { color: var(--muted); }
+.kv .v { font-family: var(--mono); }
+.kv .src { color: var(--muted); font-size: 11px; }
+
+.score-row { display: flex; gap: 6px; flex-wrap: wrap; }
+.chip { background: var(--panel-2); border: 1px solid var(--line); border-radius: 6px; padding: 3px 8px; font-size: 12px; }
+.chip b { font-family: var(--mono); }
+
+.warn { background: var(--edge-bg); border-left: 3px solid var(--edge); padding: 8px 12px; border-radius: 4px; margin: 8px 0; font-size: 13px; }
+.disc { color: var(--muted); font-size: 12px; border-top: 1px solid var(--line); margin-top: 30px; padding-top: 14px; }
+button { background: var(--accent); color: #06101f; border: 0; border-radius: 7px; padding: 8px 14px; font-weight: 700; cursor: pointer; }
+button.ghost { background: var(--panel-2); color: var(--text); border: 1px solid var(--line); }
+button:hover { filter: brightness(1.08); }
+label { display: block; color: var(--muted); font-size: 12px; margin: 10px 0 3px; }
+input[type=number], input[type=text] { width: 100%; background: var(--panel-2); color: var(--text); border: 1px solid var(--line); border-radius: 6px; padding: 7px 9px; font-family: var(--mono); }
+.tabs { display: flex; gap: 4px; flex-wrap: wrap; margin-bottom: 14px; }
+.tabs button { background: var(--panel-2); color: var(--muted); border: 1px solid var(--line); font-weight: 600; }
+.tabs button.active { background: var(--accent); color: #06101f; }
+.muted { color: var(--muted); }
+.bar { height: 14px; background: var(--panel-2); border-radius: 4px; overflow: hidden; }
+.bar > span { display: block; height: 100%; background: var(--accent); }
+small.note { color: var(--muted); }

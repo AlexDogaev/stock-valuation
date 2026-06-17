@@ -28,6 +28,14 @@ def _startup():
         n = db.execute("SELECT COUNT(*) AS c FROM issuers").fetchone()["c"]
     if n == 0:
         seed_static()  # статический seed без сети; живые данные — POST /api/refresh
+    from app.scheduler import start_scheduler
+    start_scheduler()  # автономное обновление; выкл. через SCHEDULER_ENABLED=0
+
+
+@app.on_event("shutdown")
+def _shutdown():
+    from app.scheduler import shutdown_scheduler
+    shutdown_scheduler()
 
 
 def _page(request: Request, name: str, **ctx):

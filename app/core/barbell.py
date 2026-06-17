@@ -6,7 +6,51 @@
 """
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+
+
+# ── Режимная аллокация рукавов (§4 плана автономности) ────────────────────────
+# Защита делится: ОФЗ-фикс 60% / золото 28% / флоатеры 12% рукава защиты.
+# Атака: ядро доказанного качества (целевой минимум ~30% портфеля, если хватает)
+# + резерв на добор перспективного качества в шок.
+DEF_OFZ, DEF_GOLD, DEF_FLOATER = 0.60, 0.28, 0.12
+CORE_TARGET = 0.30  # целевая доля ядра доказанного качества от всего портфеля
+
+
+@dataclass
+class RegimeAllocation:
+    regime: str
+    defense_total: float
+    attack_total: float
+    defense: dict           # ofz_fixed / gold / floater (доли портфеля)
+    attack: dict            # core_proven / shock_reserve (доли портфеля)
+    notes: list[str] = field(default_factory=list)
+
+
+def regime_allocation(*, regime: str, defense_share: float, attack_share: float) -> RegimeAllocation:
+    """Собрать структуру портфеля по режиму (из nwf_regime: defense/attack)."""
+    defense = {
+        "ofz_fixed": round(defense_share * DEF_OFZ, 3),
+        "gold": round(defense_share * DEF_GOLD, 3),
+        "floater": round(defense_share * DEF_FLOATER, 3),
+    }
+    core = min(attack_share, CORE_TARGET)
+    reserve = round(max(0.0, attack_share - core), 3)
+    attack = {"core_proven": round(core, 3), "shock_reserve": reserve}
+
+    notes = []
+    if regime == "SHOCK":
+        notes.append("ШОК: рукав атаки расширен — жадно добираем подешевевшее качество.")
+    elif regime == "RISK":
+        notes.append("RISK: перевес в защиту; ядро доказанного качества держим, добор отложен.")
+    else:
+        notes.append("NORMAL: базовый поток в атаку, резерв на шоковый добор перспективного.")
+    if defense.get("gold"):
+        notes.append(f"Золото ≈ {defense['gold']*100:.0f}% портфеля (физический металл, хвостовая защита).")
+    return RegimeAllocation(
+        regime=regime, defense_total=round(defense_share, 3),
+        attack_total=round(attack_share, 3), defense=defense, attack=attack, notes=notes,
+    )
 
 
 def average_attack(*, base: float, shock_share: float, shock_return: float) -> float:

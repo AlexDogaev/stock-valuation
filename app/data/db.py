@@ -81,6 +81,33 @@ CREATE TABLE IF NOT EXISTS structural (
     FOREIGN KEY (secid) REFERENCES issuers(secid)
 );
 
+-- история фундаментала по годам (снапшоты T-Invest вперёд + ручная ретроспектива).
+-- База для roic_years (устойчивость ROIC ≥ N лет) в маркерах качества.
+CREATE TABLE IF NOT EXISTS financials_history (
+    secid        TEXT,
+    year         INTEGER,
+    roic         REAL,
+    wacc         REAL,
+    payout       REAL,
+    net_profit   REAL,
+    source       TEXT,
+    snapshot_at  TEXT,
+    PRIMARY KEY (secid, year),
+    FOREIGN KEY (secid) REFERENCES issuers(secid)
+);
+
+-- черновик структурных баллов от LLM (класс B); человек подтверждает → structural
+CREATE TABLE IF NOT EXISTS structural_draft (
+    secid                TEXT PRIMARY KEY,
+    moat                 INTEGER, disruption INTEGER, tam INTEGER,
+    regulation           INTEGER, demo INTEGER, gosnaves INTEGER,
+    monetization_proven  INTEGER,
+    rationale            TEXT,
+    model                TEXT,
+    created_at           TEXT,
+    FOREIGN KEY (secid) REFERENCES issuers(secid)
+);
+
 CREATE TABLE IF NOT EXISTS macro (
     id              INTEGER PRIMARY KEY CHECK (id = 1),
     key_rate        REAL,
@@ -102,6 +129,25 @@ CREATE TABLE IF NOT EXISTS user_settings (
     basket_json       TEXT     -- корзина личной инфляции (JSON)
 );
 
+-- события (лог изменений маркеров/режима/сигналов) — проактивность, §7 плана
+CREATE TABLE IF NOT EXISTS events (
+    id       INTEGER PRIMARY KEY AUTOINCREMENT,
+    ts       TEXT,
+    kind     TEXT,      -- signal | quality | regime
+    secid    TEXT,
+    message  TEXT,
+    notified INTEGER DEFAULT 0
+);
+
+-- сохранённое предыдущее состояние эмитента (для детекции изменений)
+CREATE TABLE IF NOT EXISTS issuer_state (
+    secid           TEXT PRIMARY KEY,
+    signal          TEXT,
+    quality_marker  TEXT,
+    updated_at      TEXT,
+    FOREIGN KEY (secid) REFERENCES issuers(secid)
+);
+
 CREATE TABLE IF NOT EXISTS portfolio (
     secid   TEXT PRIMARY KEY,
     weight  REAL,
@@ -111,9 +157,12 @@ CREATE TABLE IF NOT EXISTS portfolio (
 
 
 def connect() -> sqlite3.Connection:
-    conn = sqlite3.connect(DB_PATH)
+    conn = sqlite3.connect(DB_PATH, timeout=15.0)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON")
+    # WAL: одновременная запись (планировщик) и чтение (веб) без блокировок
+    conn.execute("PRAGMA journal_mode = WAL")
+    conn.execute("PRAGMA busy_timeout = 15000")
     return conn
 
 
@@ -141,6 +190,16 @@ def init_db() -> None:
         _ensure_column(db, "market_data", "div_typical", "REAL")
         _ensure_column(db, "market_data", "div_spike", "INTEGER DEFAULT 0")
         _ensure_column(db, "user_settings", "forecast_years", "INTEGER DEFAULT 3")
+        # для маркеров качества (§2-4 плана автономности)
+        _ensure_column(db, "financials", "proven_roic_years", "INTEGER")  # экспертная ретроспектива
+        _ensure_column(db, "financials", "needs_review", "INTEGER DEFAULT 0")  # авто-флаг пересмотра
+        _ensure_column(db, "structural", "monetization_proven", "INTEGER DEFAULT 0")  # класс B
+        # ФНБ / бюджетное правило для режима (ручной ввод, §3 плана)
+        _ensure_column(db, "macro", "nwf_liquid_pct", "REAL DEFAULT 2.0")       # ликвидный ФНБ, % ВВП
+        _ensure_column(db, "macro", "nwf_months_to_zero", "REAL DEFAULT 24")    # мес до исчерпания
+        _ensure_column(db, "macro", "urals", "REAL DEFAULT 60")                 # факт Urals, $/барр
+        _ensure_column(db, "macro", "oil_cutoff", "REAL DEFAULT 60")            # цена отсечения, $/барр
+        _ensure_column(db, "macro", "last_regime", "TEXT")                      # для детекции смены режима
         # дефолтные настройки (single user, id=1)
         row = db.execute("SELECT id FROM user_settings WHERE id = 1").fetchone()
         if row is None:
@@ -178,3 +237,41 @@ def get_settings(db: sqlite3.Connection) -> dict:
 
 def get_macro(db: sqlite3.Connection) -> dict:
     return dict(db.execute("SELECT * FROM macro WHERE id = 1").fetchone())
+
+
+def roic_years(db: sqlite3.Connection, secid: str) -> int:
+    """Сколько лет устойчивого ROIC (≥ WACC) у эмитента.
+
+    Берёт максимум из: (а) экспертной ретроспективы financials.proven_roic_years
+    (seed для голубых фишек, пока история не накопилась) и (б) фактической серии
+    подряд лет с roic ≥ wacc из financials_history (накапливается снапшотами).
+    """
+    frow = db.execute(
+        "SELECT proven_roic_years FROM financials WHERE secid = ?", (secid,)
+    ).fetchone()
+    seed = (frow["proven_roic_years"] or 0) if frow else 0
+    streak = 0
+    for h in db.execute(
+        "SELECT roic, wacc FROM financials_history WHERE secid = ? ORDER BY year DESC",
+        (secid,),
+    ):
+        if h["roic"] is not None and h["wacc"] is not None and h["roic"] >= h["wacc"]:
+            streak += 1
+        else:
+            break
+    return max(seed, streak)
+
+
+def snapshot_financials(db: sqlite3.Connection, year: int, snapshot_at: str) -> int:
+    """Записать текущий срез financials в историю под указанный год (накопление вперёд)."""
+    n = 0
+    for r in db.execute("SELECT secid, roic, wacc, payout, net_profit, source FROM financials"):
+        if r["roic"] is None:
+            continue
+        upsert(db, "financials_history", dict(
+            secid=r["secid"], year=year, roic=r["roic"], wacc=r["wacc"],
+            payout=r["payout"], net_profit=r["net_profit"],
+            source=r["source"], snapshot_at=snapshot_at,
+        ), pk="secid, year")
+        n += 1
+    return n

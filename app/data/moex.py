@@ -220,5 +220,35 @@ class MoexClient:
             start += 100
         return out
 
+    def index_drawdown(self, index: str = "IMOEX", *, days: int = 365) -> float | None:
+        """Просадка индекса от локального максимума за период (≥0). Для ШОК-режима.
+
+        index — рыночный индекс (рынок 'index', борд SNDX). Возвращает (max−last)/max.
+        """
+        till = date.today().isoformat()
+        frm = (date.today() - timedelta(days=days)).isoformat()
+        closes: list[float] = []
+        start = 0
+        while True:
+            data = self._get(
+                f"/history/engines/stock/markets/index/boards/SNDX/securities/{index}.json",
+                {"iss.meta": "off", "from": frm, "till": till, "start": start,
+                 "history.columns": "TRADEDATE,CLOSE"},
+            )
+            rows = self._rows(data["history"])
+            if not rows:
+                break
+            for r in rows:
+                c = _num(r.get("CLOSE"))
+                if c is not None:
+                    closes.append(c)
+            if len(rows) < 100:
+                break
+            start += 100
+        if not closes:
+            return None
+        mx = max(closes)
+        return (mx - closes[-1]) / mx if mx else None
+
     def close(self):
         self._client.close()

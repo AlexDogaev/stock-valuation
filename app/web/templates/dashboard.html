@@ -25,9 +25,10 @@
         <th data-k="upside" title="Рост котировки за 3 года (без дивидендов)">Апсайд 3г</th>
         <th data-k="mult">Структ.×</th>
         <th data-k="sig">Сигнал</th>
+        <th data-k="qual">Качество</th>
       </tr>
     </thead>
-    <tbody id="rows"><tr><td colspan="14" class="muted">Загрузка…</td></tr></tbody>
+    <tbody id="rows"><tr><td colspan="15" class="muted">Загрузка…</td></tr></tbody>
   </table>
 </div>
 <p class="sub" id="meta"></p>
@@ -46,7 +47,7 @@ function render() {
     real: x => x.real_return,
     target: x => x.forecast.price_target, upside: x => x.forecast.price_upside,
     mult: x => x.structural.multiplier,
-    sig: x => x.signal,
+    sig: x => x.signal, qual: x => x.quality_marker,
   };
   DATA.sort((a, b) => {
     const va = get[sortKey](a), vb = get[sortKey](b);
@@ -69,6 +70,7 @@ function render() {
       <td class="num">${pctSigned(x.forecast.price_upside)}</td>
       <td class="num">${num(x.structural.multiplier, 2)}</td>
       <td>${sigBadge(x.signal)}</td>
+      <td><small title="${x.quality_label}">${x.quality_marker==='PROVEN_QUALITY'?'★ доказ.':(x.quality_marker==='PROSPECTIVE_QUALITY'?'◑ персп.':(x.quality_marker==='PROSPECTIVE_NO_QUALITY'?'○ спекул.':'·'))}</small></td>
     </tr>`).join("");
 }
 

@@ -56,7 +56,10 @@ function render(x) {
   const warns = (x.warnings||[]).map(w => `<div class="warn">${w}</div>`).join("");
 
   document.getElementById("card").innerHTML = `
-    <h1>${x.name} <small class="muted">${x.secid} · ${x.sector||""}</small> ${sigBadge(x.signal)}</h1>
+    <h1>${x.name} <small class="muted">${x.secid} · ${x.sector||""}</small> ${sigBadge(x.signal)}
+      <span class="sig ${x.quality_marker==='PROVEN_QUALITY'?'buy':(x.quality_marker==='PROSPECTIVE_QUALITY'?'edge':'')}"
+            title="Маркер качества">${x.quality_label}</span>
+      ${x.needs_review ? '<span class="sig avoid" title="авто-метрики резко изменились">⚠ пересмотр</span>' : ''}</h1>
     <p class="sub">Реальная доходность над дефлятором: <b>${pctSigned(x.real_return)}</b>
       ${x.type ? "· тип: "+x.type : ""}</p>
 
@@ -112,16 +115,41 @@ function render(x) {
         ${dims.map(([lbl,k])=>`<div><label>${lbl}</label>
            <input type="number" min="-2" max="2" step="1" id="f-${k}" value="${s[k]}"></div>`).join("")}
       </div>
-      <div style="margin-top:12px"><button id="save">Сохранить и пересчитать</button>
+      <label style="margin-top:10px;display:flex;align-items:center;gap:8px;cursor:pointer">
+        <input type="checkbox" id="f-monetization" ${x.structural.monetization_proven?'checked':''}>
+        Монетизация доказана (класс B) — даёт «перспективное качество» для добора в шок</label>
+      <div style="margin-top:12px">
+        <button class="ghost" id="llm-draft" title="Opus предложит баллы — проверь и сохрани">🤖 LLM-черновик</button>
+        <button id="save">Сохранить и пересчитать</button>
         <span id="saved" class="muted" style="margin-left:10px"></span></div>
+      <div id="llm-rationale" class="sub" style="margin-top:8px"></div>
     </div>`;
 
   document.getElementById("save").addEventListener("click", async () => {
     const body = {};
     dims.forEach(([_,k]) => body[k] = parseInt(document.getElementById("f-"+k).value)||0);
+    body.monetization_proven = document.getElementById("f-monetization").checked ? 1 : 0;
     const res = await sendJSON(`/issuers/${SECID}/structural`, "PUT", body);
     document.getElementById("saved").textContent = "Сохранено ✓";
     render(res);
+  });
+
+  document.getElementById("llm-draft").addEventListener("click", async (e) => {
+    const rat = document.getElementById("llm-rationale");
+    e.target.textContent = "Генерирую (Opus)…"; e.target.disabled = true;
+    try {
+      const r = await sendJSON(`/issuers/${SECID}/llm_draft`, "POST", {});
+      if (r.error) { rat.innerHTML = `<span class="warn">⚠ ${r.error}</span>`; return; }
+      const d = r.draft;
+      dims.forEach(([_, k]) => {
+        const el = document.getElementById("f-" + k);
+        if (el && k in d) el.value = d[k];
+      });
+      document.getElementById("f-monetization").checked = d.monetization_proven === 1;
+      rat.innerHTML = `🤖 <b>Черновик Opus:</b> ${d.rationale}
+        <i>— проверь баллы и нажми «Сохранить», если согласен (LLM не применяет сам).</i>`;
+    } catch (err) { rat.innerHTML = `<span class="warn">Ошибка: ${err.message}</span>`; }
+    finally { e.target.textContent = "🤖 LLM-черновик"; e.target.disabled = false; }
   });
 }
 

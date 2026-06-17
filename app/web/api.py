@@ -78,6 +78,7 @@ class StructuralIn(BaseModel):
     regulation: int = 0
     demo: int = 0
     gosnaves: int = 0
+    monetization_proven: int = 0
     note: str | None = None
 
 
@@ -93,6 +94,30 @@ def update_structural(secid: str, body: StructuralIn):
         upsert(db, "structural", data, pk="secid")
         res = engine.evaluate_issuer(db, secid)
     return res
+
+
+@router.post("/issuers/{secid}/llm_draft")
+def gen_llm_draft(secid: str):
+    """Сгенерировать LLM-черновик структурных баллов (Opus). Нужен .anthropic_key."""
+    from app.core import llm_judge
+    with get_db() as db:
+        return llm_judge.draft_structural(db, secid)
+
+
+@router.get("/issuers/{secid}/llm_draft")
+def read_llm_draft(secid: str):
+    from app.core import llm_judge
+    with get_db() as db:
+        d = llm_judge.get_draft(db, secid)
+    return d or {"draft": None}
+
+
+@router.post("/issuers/{secid}/apply_draft")
+def apply_llm_draft(secid: str):
+    """Применить LLM-черновик к активным баллам (подтверждение человеком)."""
+    from app.core import llm_judge
+    with get_db() as db:
+        return llm_judge.apply_draft(db, secid)
 
 
 # ── портфель ─────────────────────────────────────────────────────────────────
@@ -154,6 +179,65 @@ def refresh_funds():
 def refresh_macro_ep():
     """Обновить макро из ЦБ: ключевая ставка (надёжно) + инфляция (best-effort)."""
     return refresh_macro()
+
+
+@router.post("/jobs/{name}")
+def run_job(name: str):
+    """Ручной запуск задачи планировщика (для проверки/триггера).
+    name: quotes | macro | fundamentals | markers.
+    """
+    from app.data import refresh
+    jobs = {
+        "quotes": refresh.job_refresh_quotes,
+        "macro": refresh.job_refresh_macro,
+        "fundamentals": refresh.job_refresh_fundamentals,
+        "snapshot": refresh.job_snapshot_history,
+        "markers": refresh.job_recompute_markers,
+    }
+    if name not in jobs:
+        raise HTTPException(404, f"Неизвестная задача '{name}'. Доступны: {list(jobs)}")
+    return jobs[name]()
+
+
+# ── режим рынка (ФНБ + бюджетное правило + просадка IMOEX) ────────────────────
+class NwfIn(BaseModel):
+    nwf_liquid_pct: float | None = None
+    nwf_months_to_zero: float | None = None
+    urals: float | None = None
+    oil_cutoff: float | None = None
+
+
+@router.get("/regime")
+def get_regime():
+    from app.data.minfin import current_regime
+    return current_regime()
+
+
+@router.get("/events")
+def list_events(limit: int = 50):
+    """Последние события (смена сигнала/маркера/режима)."""
+    with get_db() as db:
+        rows = db.execute(
+            "SELECT ts, kind, secid, message, notified FROM events "
+            "ORDER BY id DESC LIMIT ?", (limit,)
+        ).fetchall()
+    return {"events": [dict(r) for r in rows]}
+
+
+@router.post("/telegram/test")
+def telegram_test():
+    """Проверка Telegram-уведомлений (шлёт тестовое сообщение)."""
+    from app.data import telegram
+    if not telegram.enabled():
+        return {"ok": False, "error": "токен не задан (.telegram_token)"}
+    ok = telegram.send_message("✅ Тест: уведомления оценки акций MOEX подключены.")
+    return {"ok": ok, "chat_id": telegram.get_chat_id()}
+
+
+@router.put("/macro/nwf")
+def put_nwf(body: NwfIn):
+    from app.data.minfin import update_nwf
+    return update_nwf(**body.model_dump())
 
 
 # ── backtest на истории MOEX ─────────────────────────────────────────────────

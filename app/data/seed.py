@@ -82,6 +82,17 @@ FIN = {
 }
 
 
+# Экспертная ретроспектива: лет устойчивого ROIC ≥ WACC (для маркеров качества,
+# пока financials_history не накопит реальную серию снапшотами). Голубые фишки —
+# стабильны 5-10 лет; недавние IPO / структурно слабые — <5. Оценка, не точные данные.
+PROVEN_ROIC = {
+    "SBER": 10, "LKOH": 10, "TATN": 8, "GMKN": 8, "NVTK": 7, "MOEX": 7, "SIBN": 7,
+    "PLZL": 6, "PHOR": 6, "ROSN": 6, "MTSS": 6, "MGNT": 6, "BSPB": 6, "TRNFP": 6,
+    "CHMF": 5, "X5": 5, "MDMG": 4, "HEAD": 4, "T": 4, "SVCB": 3, "YDEX": 3,
+    "PRMD": 2, "OZPH": 2, "GAZP": 2, "OZON": 0,
+}
+
+
 def seed_static() -> dict:
     """Залить статические данные модели в БД (без обращения к сети)."""
     init_db()
@@ -95,6 +106,8 @@ def seed_static() -> dict:
             fin = dict(secid=secid, period="2025", g_base=g, compression=comp,
                        source="Excel: ТОП-25", updated_at=now)
             fin.update(FIN.get(secid, {}))
+            if secid in PROVEN_ROIC:
+                fin["proven_roic_years"] = PROVEN_ROIC[secid]
             upsert(db, "financials", fin, pk="secid")
             # стартовая дивдоходность из Excel (перезапишется живой из MOEX)
             upsert(db, "market_data", dict(

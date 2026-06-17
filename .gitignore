@@ -1,6 +1,13 @@
 # секреты и локальные данные — не коммитить
 .tinvest_token
+.tinvest_token.txt
+.telegram_token
+.telegram_chat
+.anthropic_key
+.anthropic_key.txt
 data.sqlite3
+data.sqlite3-wal
+data.sqlite3-shm
 _model_dump.txt
 _emiss_meta.json
 _emiss_page.html

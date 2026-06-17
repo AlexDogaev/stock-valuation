@@ -12,8 +12,8 @@ import sqlite3
 from typing import Any
 
 from app.config import FORECAST_YEARS
-from app.core import valuation, structural, classify, inflation, rate
-from app.data.db import get_db, get_settings, get_macro
+from app.core import valuation, structural, classify, inflation, rate, quality_markers
+from app.data.db import get_db, get_settings, get_macro, roic_years
 
 
 # ── дефлятор из настроек пользователя ────────────────────────────────────────
@@ -66,7 +66,8 @@ def evaluate_issuer(db: sqlite3.Connection, secid: str) -> dict[str, Any] | None
                   f.roic, f.wacc, f.body_trend, f.revenue_growth, f.etype,
                   f.is_rentier, f.is_resource, f.net_profit, f.source AS fin_source,
                   s.moat, s.disruption, s.tam, s.regulation, s.demo, s.gosnaves,
-                  s.mult_seed, s.note AS struct_note
+                  s.mult_seed, s.note AS struct_note, s.monetization_proven,
+                  f.needs_review
            FROM issuers i
            LEFT JOIN market_data m ON m.secid = i.secid
            LEFT JOIN financials f ON f.secid = i.secid
@@ -193,6 +194,13 @@ def evaluate_issuer(db: sqlite3.Connection, secid: str) -> dict[str, Any] | None
     if r["is_resource"]:
         warnings.append("Ресурсный: тренд тела (добыча/запасы) проверять вручную.")
 
+    # маркер качества (§3 плана): доказанное/перспективное/обычное
+    qmark = quality_markers.quality_marker(
+        structural_score=struct_res.score, roic_years=roic_years(db, r["secid"]),
+        payout=r["payout"], revenue_growth=r["revenue_growth"],
+        compression=compression, monetization_proven=r["monetization_proven"] or 0,
+    )
+
     return {
         "secid": r["secid"],
         "name": r["shortname"],
@@ -216,6 +224,7 @@ def evaluate_issuer(db: sqlite3.Connection, secid: str) -> dict[str, Any] | None
             "demo": struct_res.demo, "gosnaves": struct_res.gosnaves,
             "score": struct_res.score, "zone": struct_res.zone,
             "multiplier": mult, "detailed": detailed,
+            "monetization_proven": bool(r["monetization_proven"]),
             "note": r["struct_note"], "warnings": struct_res.warnings,
         },
         "calc": {
@@ -226,6 +235,9 @@ def evaluate_issuer(db: sqlite3.Connection, secid: str) -> dict[str, Any] | None
         "market": market,
         "forecast": forecast,
         "signal": fr.signal,
+        "quality_marker": qmark,
+        "quality_label": quality_markers.LABELS_RU[qmark],
+        "needs_review": bool(r["needs_review"]),
         "real_return": fr.real,
         "classification": classification,
         "mature": mature,

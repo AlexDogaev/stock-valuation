@@ -17,6 +17,20 @@ BASE = Path(__file__).resolve().parent
 templates = Jinja2Templates(directory=str(BASE / "web" / "templates"))
 
 app = FastAPI(title="Оценка справедливой стоимости акций (MOEX)")
+
+
+@app.middleware("http")
+async def _basic_auth(request: Request, call_next):
+    """Прод-доступ ограниченного круга: HTTP Basic, если есть .auth (иначе открыто)."""
+    from fastapi.responses import Response
+    from app.web import auth as _auth
+    users = _auth.load_users()
+    if users and not _auth.check_basic(request.headers.get("Authorization"), users):
+        return Response(status_code=401, content="Authorization required",
+                        headers={"WWW-Authenticate": 'Basic realm="MOEX Stocks (beta)"'})
+    return await call_next(request)
+
+
 app.mount("/static", StaticFiles(directory=str(BASE / "web" / "static")), name="static")
 app.include_router(api_router)
 

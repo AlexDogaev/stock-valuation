@@ -1,8 +1,10 @@
 """Конфигурация сервиса. Локальный single-user MVP."""
+import os
 from pathlib import Path
 
 BASE_DIR = Path(__file__).resolve().parent.parent
-DB_PATH = BASE_DIR / "data.sqlite3"
+# путь к БД переопределяем через env (для Docker-тома: DB_PATH=/data/data.sqlite3)
+DB_PATH = Path(os.environ["DB_PATH"]) if os.environ.get("DB_PATH") else BASE_DIR / "data.sqlite3"
 
 # MOEX ISS
 MOEX_BASE = "https://iss.moex.com/iss"

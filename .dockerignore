@@ -1,0 +1,21 @@
+# в образ не попадают: секреты, данные (том), локальный мусор
+.git
+.gitignore
+__pycache__/
+*.pyc
+.pytest_cache/
+.venv/
+venv/
+data.sqlite3*
+.auth
+.env
+.anthropic_key*
+.tinvest_token*
+.telegram_token
+.telegram_chat
+*.bat
+_*.py
+_*.log
+HANDOVER.md
+REVIEW*.md
+tests/

@@ -1,4 +1,6 @@
 # секреты и локальные данные — не коммитить
+.auth
+.env
 .tinvest_token
 .tinvest_token.txt
 .telegram_token

@@ -1,0 +1,32 @@
+# Прод-стек: приложение (FastAPI) + Caddy (авто-HTTPS reverse-proxy).
+# Доступ — per-user Basic Auth в приложении (env APP_AUTH). HTTPS — Caddy (Let's Encrypt).
+# Запуск: docker compose up -d --build   (предварительно заполнить .env и положить data.sqlite3 в ./data/)
+
+services:
+  app:
+    build: .
+    restart: unless-stopped
+    env_file: .env
+    volumes:
+      - ./data:/data            # сюда заранее кладётся заполненный data.sqlite3 (50 эмитентов)
+    expose:
+      - "8099"                  # наружу не публикуем — только через Caddy
+
+  caddy:
+    image: caddy:2
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      - PUBLIC_HOST=${PUBLIC_HOST}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data        # сертификаты Let's Encrypt
+      - caddy_config:/config
+    depends_on:
+      - app
+
+volumes:
+  caddy_data:
+  caddy_config:

@@ -1,0 +1,9 @@
+# Авто-HTTPS (Let's Encrypt) для PUBLIC_HOST → проксирование в приложение.
+# PUBLIC_HOST задаётся в .env. Без своего домена — <PUBLIC_IP-через-дефисы>.sslip.io
+# (sslip.io резолвит hostname в IP, Let's Encrypt выдаёт сертификат на него).
+# Авторизация (per-user Basic) — на стороне приложения, не здесь.
+
+{$PUBLIC_HOST} {
+	reverse_proxy app:8099
+	encode gzip
+}

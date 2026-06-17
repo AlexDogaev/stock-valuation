@@ -58,13 +58,18 @@ function glossarize(text) {
 // ── оценка метрик (правила; банк-aware спред). Общая логика для карточки и скринера ──
 function metricEvalRows(x) {
   const rows = [];
+  const sp = x.classification ? x.classification.roic_minus_wacc : null;
   const roe = x.inputs.roe.value;
   if (roe != null) {
-    const [l, c] = roe >= 0.25 ? ["очень сильно", "buy"] : roe >= 0.15 ? ["сильно", "buy"]
-                 : roe >= 0.08 ? ["средне", "edge"] : ["слабо", "avoid"];
+    let l, c;
+    if (sp != null && sp < 0) {
+      l = "завышен · спред<0"; c = "edge";   // ROE при ROIC<WACC вводит в заблуждение
+    } else {
+      [l, c] = roe >= 0.25 ? ["очень сильно", "buy"] : roe >= 0.15 ? ["сильно", "buy"]
+             : roe >= 0.08 ? ["средне", "edge"] : ["слабо", "avoid"];
+    }
     rows.push({ k: "ROE", v: pct(roe), label: l, cls: c });
   }
-  const sp = x.classification ? x.classification.roic_minus_wacc : null;
   if (sp != null) {
     const bank = x.sector === "Банк";
     let l, c, name;
@@ -79,10 +84,16 @@ function metricEvalRows(x) {
     }
     rows.push({ k: name, v: `${sp >= 0 ? "+" : ""}${(sp * 100).toFixed(1)} пп`, label: l, cls: c });
   }
-  const dy = x.inputs.div_yield.value;
+  const di = x.inputs.div_yield, dy = di.value;
   if (dy != null && dy > 0) {
-    const [l, c] = dy >= 0.12 ? ["высокая", "buy"] : dy >= 0.06 ? ["умеренная", "edge"] : ["низкая", "neu"];
-    rows.push({ k: "Дивдоходность", v: pct(dy), label: l, cls: c });
+    if (di.spike) {
+      // разовый дивиденд: показываем факт + устойчивую (на ней калиброван сигнал)
+      const sv = di.signal_value != null ? di.signal_value : 0;
+      rows.push({ k: "Дивдоходность", v: `${pct(dy)} → устойч. ${pct(sv)}`, label: "разовая · спайк", cls: "edge" });
+    } else {
+      const [l, c] = dy >= 0.12 ? ["высокая", "buy"] : dy >= 0.06 ? ["умеренная", "edge"] : ["низкая", "neu"];
+      rows.push({ k: "Дивдоходность", v: pct(dy), label: l, cls: c });
+    }
   }
   const po = x.inputs.payout.value;
   if (po != null) {

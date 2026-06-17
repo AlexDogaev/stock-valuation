@@ -57,8 +57,44 @@ def structural_for(srow: sqlite3.Row | dict) -> tuple[structural.StructuralResul
     return res, (seed if seed is not None else 1.0), False
 
 
+# ── макро-поправка hurdle: здоровье ФНБ + риск ШОКа → системная риск-премия ──
+MACRO_F0, MACRO_BONUS, MACRO_PENALTY = 0.30, 0.015, 0.030  # нейтраль / бонус(здорово) / штраф(хрупко)
+SHOCK_NO_BUY = 80.0  # риск ШОКа ≥ этого % — покупать вообще нет смысла (жёсткий потолок)
+
+
+def macro_fragility(db: sqlite3.Connection) -> dict:
+    """Индекс хрупкости макро ∈[0,1] из ФНБ (deval_score) + риска ШОКа (%). Считать ОДИН раз."""
+    deval, regime, shock_pct = 0, "NORMAL", None
+    try:
+        from app.data.minfin import current_regime
+        reg = current_regime()
+        deval = reg.get("deval_score") or 0
+        regime = reg.get("regime") or "NORMAL"
+    except Exception:  # noqa: BLE001 — макро не должно ронять оценку
+        pass
+    try:
+        from app.core import llm_macro
+        sh = llm_macro.get_shock(db)
+        shock_pct = (sh or {}).get("aggregate_pct")
+    except Exception:  # noqa: BLE001
+        pass
+    f_nwf = min(max(deval / 6.0, 0.0), 1.0)
+    f_shock = min(max(((shock_pct or 0.0) - 15.0) / 25.0, 0.0), 1.0)
+    return {"F": 0.5 * f_nwf + 0.5 * f_shock, "regime": regime,
+            "deval_score": deval, "shock_pct": shock_pct}
+
+
+def macro_hurdle_delta(F: float, qmark: str) -> float:
+    """Поправка к реальному hurdle: здорово → ниже (агрессивнее), хрупко → выше.
+    Штраф хрупкости меньше для качества (барбелл: качество добираем и в напряжении)."""
+    if F <= MACRO_F0:
+        return -MACRO_BONUS * (MACRO_F0 - F) / MACRO_F0
+    q = 0.4 if qmark in ("PROVEN_QUALITY", "PROSPECTIVE_QUALITY") else 1.0
+    return MACRO_PENALTY * (F - MACRO_F0) / (1.0 - MACRO_F0) * q
+
+
 # ── полный прогон одного эмитента ────────────────────────────────────────────
-def evaluate_issuer(db: sqlite3.Connection, secid: str) -> dict[str, Any] | None:
+def evaluate_issuer(db: sqlite3.Connection, secid: str, macro_frag: dict | None = None) -> dict[str, Any] | None:
     row = db.execute(
         """SELECT i.secid, i.shortname, i.sector,
                   m.price, m.cap, m.div_yield, m.div_typical, m.div_spike, m.fetched_at,
@@ -89,15 +125,45 @@ def evaluate_issuer(db: sqlite3.Connection, secid: str) -> dict[str, Any] | None
     g_base = r["g_base"] or 0.0
     compression = r["compression"] if r["compression"] is not None else 1.0
 
+    # калибровка разового дивиденда (спайк): сигнал/реал считаем на УСТОЙЧИВОЙ
+    # дивдоходности = payout × прибыль / капа (≡ payout/PE), а не на TTM-выплате,
+    # которая могла включать догоняющий/спецдивиденд. Без прибыли — на типичной
+    # исторической; иначе на фактической. Дисплей показывает фактическую TTM.
+    div_spike = bool(r["div_spike"])
+    div_yield_signal = div_yield
+    if div_spike:
+        np_, cap_, po_ = r["net_profit"], r["cap"], r["payout"]
+        if po_ is not None and np_ and np_ > 0 and cap_:
+            sustainable = po_ * np_ / (cap_ / 1e9)
+        elif r["div_typical"]:
+            sustainable = r["div_typical"]
+        else:
+            sustainable = 0.0
+        div_yield_signal = min(div_yield, max(0.0, sustainable))
+
+    # маркер качества — нужен ДО сигнала (для гейта и макро-поправки hurdle)
+    qmark = quality_markers.quality_marker(
+        structural_score=struct_res.score, roic_years=roic_years(db, r["secid"]),
+        payout=r["payout"], revenue_growth=r["revenue_growth"],
+        compression=compression, monetization_proven=r["monetization_proven"] or 0,
+    )
+    # макро-поправка hurdle: здоровье ФНБ + риск ШОКа (× качество, барбелл).
+    # Реализованный ШОК-режим обнуляет hurdle внутри full_return — форвардная
+    # осторожность ему уступает (до шторма строже, в шторм — добор качества).
+    if macro_frag is None:
+        macro_frag = macro_fragility(db)
+    macro_delta = macro_hurdle_delta(macro_frag["F"], qmark)
+    hurdle_eff = settings["hurdle"] + macro_delta
+
     # требуемая доходность r (для теста достоверности зоны)
     asset_premium = 0.05 if (r["etype"] or "").startswith("раст") else 0.0
     r_req = rate.default_r(risk_premium=settings["risk_premium"],
                            asset_premium=asset_premium).r
 
     fr = valuation.full_return(
-        div_yield=div_yield, g_base=g_base, compression=compression,
+        div_yield=div_yield_signal, g_base=g_base, compression=compression,
         structural_mult=mult, deflator=deflator,
-        hurdle=settings["hurdle"], buffer=settings["buffer"],
+        hurdle=hurdle_eff, buffer=settings["buffer"],
         regime=settings["regime"], r=r_req,
     )
 
@@ -177,14 +243,11 @@ def evaluate_issuer(db: sqlite3.Connection, secid: str) -> dict[str, Any] | None
     }
 
     warnings = list(fr.notes) + list(struct_res.warnings)
-    div_spike = bool(r["div_spike"])
     if div_spike:
-        typ = r["div_typical"]
         warnings.append(
-            f"Дивдоходность {div_yield*100:.0f}% — TTM-аномалия (вероятно разовый "
-            f"спецдивиденд), сигнал может быть завышен. "
-            + (f"Типичная годовая ≈ {typ*100:.0f}%." if typ else
-               "Короткая/прерывистая история выплат."))
+            f"Дивдоходность {div_yield*100:.0f}% — разовая выплата (TTM-спайк). Сигнал и "
+            f"реальная доходность калиброваны на устойчивую ≈{div_yield_signal*100:.0f}% "
+            f"(payout × прибыль / капа).")
     if loss:
         warnings.append("Чистая прибыль TTM отрицательна. У холдингов это часто РСБУ "
                         "материнской компании (≠ МСФО группы) — P/E неприменим, сверь источник.")
@@ -193,13 +256,27 @@ def evaluate_issuer(db: sqlite3.Connection, secid: str) -> dict[str, Any] | None
                         "P/B и ROE неинформативны.")
     if r["is_resource"]:
         warnings.append("Ресурсный: тренд тела (добыча/запасы) проверять вручную.")
+    if abs(macro_delta) >= 0.005:
+        warnings.append(
+            f"Макро-поправка hurdle {macro_delta*100:+.1f}пп "
+            f"({'осторожнее' if macro_delta > 0 else 'агрессивнее'}): "
+            f"ФНБ деваль {macro_frag['deval_score']}/6, риск ШОКа {macro_frag['shock_pct']}%.")
 
-    # маркер качества (§3 плана): доказанное/перспективное/обычное
-    qmark = quality_markers.quality_marker(
-        structural_score=struct_res.score, roic_years=roic_years(db, r["secid"]),
-        payout=r["payout"], revenue_growth=r["revenue_growth"],
-        compression=compression, monetization_proven=r["monetization_proven"] or 0,
-    )
+    # качественный гейт (owner-rule): «обычное» качество НЕ может быть ПОКУПАЙ.
+    # Защита от value-trap и завышенного сигнала (фантомные/разовые дивы, дешёвые
+    # некачественные имена). Понижаем на одну ступень: ПОКУПАЙ → ГРАНИЦА.
+    signal = fr.signal
+    if qmark == "ordinary" and signal == "ПОКУПАЙ":
+        signal = "ГРАНИЦА"
+        warnings.append("Сигнал понижен ПОКУПАЙ→ГРАНИЦА: «обычное» качество не даёт «покупай» "
+                        "(защита от value-trap и завышенного сигнала по некачественным именам).")
+
+    # жёсткий потолок: при экстремальном форвардном риске ШОКа покупать нет смысла
+    sp_ = macro_frag.get("shock_pct")
+    if sp_ is not None and sp_ >= SHOCK_NO_BUY and signal == "ПОКУПАЙ":
+        signal = "ВОЗДЕРЖИСЬ"
+        warnings.append(f"Сигнал снят ПОКУПАЙ→ВОЗДЕРЖИСЬ: риск ШОКа {sp_:.0f}% ≥ {SHOCK_NO_BUY:.0f}% — "
+                        f"системно покупать нет смысла (держать порох сухим до реализации шока).")
 
     return {
         "secid": r["secid"],
@@ -211,7 +288,7 @@ def evaluate_issuer(db: sqlite3.Connection, secid: str) -> dict[str, Any] | None
             "cap_bln": {"value": round(r["cap"] / 1e9, 1) if r["cap"] else None,
                         "source": "MOEX ISS", "date": r["fetched_at"]},
             "div_yield": {"value": div_yield, "source": r["fetched_at"] if div_yield else "Excel/MOEX",
-                          "spike": div_spike, "typical": r["div_typical"]},
+                          "spike": div_spike, "typical": r["div_typical"], "signal_value": div_yield_signal},
             "g_base": {"value": g_base, "source": r["fin_source"] or "Excel"},
             "compression": {"value": compression, "source": "модель"},
             "roe": {"value": r["roe"], "source": "Excel (ур.2)"},
@@ -234,9 +311,11 @@ def evaluate_issuer(db: sqlite3.Connection, secid: str) -> dict[str, Any] | None
         },
         "market": market,
         "forecast": forecast,
-        "signal": fr.signal,
+        "signal": signal,
         "quality_marker": qmark,
         "quality_label": quality_markers.LABELS_RU[qmark],
+        "macro_adj": {"delta_pp": round(macro_delta * 100, 2), "fragility": round(macro_frag["F"], 2),
+                      "deval_score": macro_frag["deval_score"], "shock_pct": macro_frag["shock_pct"]},
         "needs_review": bool(r["needs_review"]),
         "real_return": fr.real,
         "classification": classification,
@@ -323,9 +402,10 @@ def generate_backtest(db: sqlite3.Connection, client, horizons=(1, 2, 3)) -> dic
 
 def screen_all(db: sqlite3.Connection) -> list[dict]:
     secids = [r["secid"] for r in db.execute("SELECT secid FROM issuers ORDER BY secid")]
+    macro = macro_fragility(db)  # один раз на всю вселенную (не дёргать MOEX по 50×)
     out = []
     for secid in secids:
-        res = evaluate_issuer(db, secid)
+        res = evaluate_issuer(db, secid, macro_frag=macro)
         if res:
             out.append(res)
     # сортировка по реальной доходности (лучшие сверху)

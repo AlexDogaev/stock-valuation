@@ -55,6 +55,13 @@
   /* оценка метрик: контейнер карточки; строки/цвета — глобально в app.css */
   #card .vmetrics-eval { margin-top: 32px; }
   #card .meval { margin-top: 12px; }
+
+  /* макро-тилт сигнала (постоянная строка) */
+  #card .macro-tilt { margin-top: 24px; }
+  #card .macro-tilt p { margin: 6px 0 0; font-size: 14px; color: var(--ink); }
+  #card .macro-tilt b { font-family: var(--mono); }
+  #card .macro-tilt b.up { color: var(--edge); }
+  #card .macro-tilt b.down { color: var(--buy); }
 </style>
 {% endblock %}
 {% block content %}
@@ -81,6 +88,20 @@ function metricEvalBlock(x) {
       (ROIC−WACC к банкам не применим), калиброван под высокие ставки. ROE у банков частично от плеча.
       Payout — профиль (зрелость/рост), не «сила». Наведи на аббревиатуру — расшифровка.</p>
   </section>`;
+}
+
+// постоянная строка: влияние макро (ФНБ + риск ШОКа) на сигнал через поправку hurdle
+function macroTiltLine(x) {
+  const m = x.macro_adj;
+  if (!m) return "";
+  const d = m.delta_pp;
+  const cls = d > 0 ? "up" : (d < 0 ? "down" : "");
+  const dir = d > 0 ? "строже (макро хрупкое)" : (d < 0 ? "агрессивнее (макро здоровое)" : "нейтрально");
+  const shock = m.shock_pct == null ? "н/д" : m.shock_pct + "%";
+  return `<section class="macro-tilt"><span class="vm-k">Макро-тилт сигнала</span>
+    <p>hurdle <b class="${cls}">${d > 0 ? "+" : ""}${d} пп</b> · ${dir}
+      <span class="muted">— хрупкость ${m.fragility} (${glossarize("ФНБ")} деваль ${m.deval_score}/6,
+      риск ШОКа ${shock})</span></p></section>`;
 }
 
 function render(x) {
@@ -156,6 +177,7 @@ function render(x) {
       <p>${glossarize(rationale)}</p>
     </section>
     ${metricEvalBlock(x)}
+    ${macroTiltLine(x)}
     <button class="vtoggle" id="toggle-details" type="button">Индикаторы +</button>`;
 
   // ── ПОД КНОПКОЙ «ИНДИКАТОРЫ»: всё остальное ──

@@ -193,6 +193,7 @@ def run_job(name: str):
         "fundamentals": refresh.job_refresh_fundamentals,
         "snapshot": refresh.job_snapshot_history,
         "markers": refresh.job_recompute_markers,
+        "macro_analysis": refresh.job_macro_analysis,
     }
     if name not in jobs:
         raise HTTPException(404, f"Неизвестная задача '{name}'. Доступны: {list(jobs)}")
@@ -210,7 +211,42 @@ class NwfIn(BaseModel):
 @router.get("/regime")
 def get_regime():
     from app.data.minfin import current_regime
-    return current_regime()
+    from app.core import llm_macro
+    r = current_regime()
+    with get_db() as db:
+        r["analysis"] = llm_macro.get_analysis(db)
+        r["context"] = llm_macro.get_context(db)
+        r["shock"] = llm_macro.get_shock(db)
+    return r
+
+
+@router.post("/regime/analyze")
+def regime_analyze():
+    """Прогнать Opus-разбор макро-режима (advisory). Нужен .anthropic_key."""
+    from app.core import llm_macro
+    with get_db() as db:
+        return llm_macro.analyze_macro(db)
+
+
+@router.post("/regime/shock_assess")
+def regime_shock_assess():
+    """Оценить форвардную вероятность ШОКА по сценариям (Opus, субъективно)."""
+    from app.core import llm_macro
+    with get_db() as db:
+        return llm_macro.assess_shock(db)
+
+
+class MacroContextIn(BaseModel):
+    context_md: str
+    source: str | None = None
+
+
+@router.put("/macro/context")
+def put_macro_context(body: MacroContextIn):
+    """Обновить курируемый макро-брифинг (факты для анализа Опусом)."""
+    from app.core import llm_macro
+    with get_db() as db:
+        return llm_macro.set_context(db, body.context_md, body.source or "")
 
 
 @router.get("/events")

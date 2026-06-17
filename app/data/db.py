@@ -117,6 +117,38 @@ CREATE TABLE IF NOT EXISTS macro (
     updated_at      TEXT
 );
 
+-- курируемый макро-брифинг (свежие факты для глубокого анализа Опусом перед публикацией)
+CREATE TABLE IF NOT EXISTS macro_context (
+    id          INTEGER PRIMARY KEY CHECK (id = 1),
+    context_md  TEXT,
+    source      TEXT,
+    updated_at  TEXT
+);
+
+-- кеш анализа Опуса над макро-режимом (advisory; правила остаются костяком)
+CREATE TABLE IF NOT EXISTS macro_analysis (
+    id           INTEGER PRIMARY KEY CHECK (id = 1),
+    regime_rule  TEXT,
+    regime_opus  TEXT,
+    confidence   TEXT,
+    verdict      TEXT,
+    nuances_json TEXT,
+    note         TEXT,
+    model        TEXT,
+    created_at   TEXT
+);
+
+-- форвардная вероятность ШОКА по сценариям (субъективная оценка Opus, кеш)
+CREATE TABLE IF NOT EXISTS shock_risk (
+    id             INTEGER PRIMARY KEY CHECK (id = 1),
+    aggregate_pct  REAL,
+    horizon        TEXT,
+    scenarios_json TEXT,
+    note           TEXT,
+    model          TEXT,
+    created_at     TEXT
+);
+
 CREATE TABLE IF NOT EXISTS user_settings (
     id                INTEGER PRIMARY KEY CHECK (id = 1),
     hurdle            REAL,

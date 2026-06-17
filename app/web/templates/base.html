@@ -4,8 +4,11 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{{ title }} · Оценка акций MOEX</title>
-  <link rel="stylesheet" href="/static/app.css">
-  <script src="/static/app.js"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Golos+Text:wght@400;500;600&family=JetBrains+Mono:wght@400;500&family=Lora:wght@500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/static/app.css?v=20260617-min7">
+  <script src="/static/app.js?v=20260617-min7"></script>
   {% block head %}{% endblock %}
 </head>
 <body>
@@ -39,6 +42,8 @@
         <option value="5">5 лет</option>
       </select>
     </span>
+    <div class="nwf" id="nwf-marker"></div>
+    <div class="nwf" id="shock-marker"></div>
   </header>
   <main>
     {% block content %}{% endblock %}

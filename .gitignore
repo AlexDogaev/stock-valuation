@@ -9,6 +9,7 @@ data.sqlite3
 data.sqlite3-wal
 data.sqlite3-shm
 _model_dump.txt
+HANDOVER.md
 _emiss_meta.json
 _emiss_page.html
 

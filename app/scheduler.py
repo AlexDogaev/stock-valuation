@@ -14,6 +14,7 @@ from apscheduler.schedulers.background import BackgroundScheduler
 from app.data.refresh import (
     job_refresh_quotes, job_refresh_macro,
     job_refresh_fundamentals, job_recompute_markers, job_snapshot_history,
+    job_macro_analysis,
 )
 
 log = logging.getLogger("scheduler")
@@ -45,6 +46,9 @@ def start_scheduler() -> BackgroundScheduler | None:
     # пересчёт маркеров/событий — ежедневно вечером, после котировок
     sch.add_job(job_recompute_markers, "cron", hour=20,
                 id="markers", replace_existing=True, misfire_grace_time=3600)
+    # глубокий Opus-разбор макро-режима — ежедневно утром (advisory, кеш)
+    sch.add_job(job_macro_analysis, "cron", hour=9, minute=30,
+                id="macro_analysis", replace_existing=True, misfire_grace_time=6 * 3600)
     sch.start()
     _scheduler = sch
     log.info("scheduler запущен: %s", [j.id for j in sch.get_jobs()])

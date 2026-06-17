@@ -36,3 +36,20 @@ def test_shares_sum_to_one():
     a = regime_allocation(regime="NORMAL", defense_share=0.30, attack_share=0.70)
     total = sum(a.defense.values()) + sum(a.attack.values())
     assert approx(total, 1.0)
+
+
+def test_deval_tilt_high():
+    # high: защита 70% → ОФЗ 25 / золото 50 / флоат 25 %
+    a = regime_allocation(regime="RISK", defense_share=0.70, attack_share=0.30,
+                          deval_pressure="high")
+    assert approx(a.defense["ofz_fixed"], 0.175)
+    assert approx(a.defense["gold"], 0.35)
+    assert a.defense["gold"] > a.defense["ofz_fixed"]      # золото перевешивает рублёвые ОФЗ
+    assert any("Девал-тилт" in n for n in a.notes)
+    # сумма долей сохраняется
+    assert approx(sum(a.defense.values()) + sum(a.attack.values()), 1.0)
+
+
+def test_no_tilt_default():
+    a = regime_allocation(regime="RISK", defense_share=0.70, attack_share=0.30)
+    assert approx(a.defense["ofz_fixed"], 0.42)            # базовый сплит без тилта

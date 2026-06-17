@@ -39,7 +39,9 @@ def _shutdown():
 
 
 def _page(request: Request, name: str, **ctx):
-    return templates.TemplateResponse(request, name, {"disclaimer": DISCLAIMER, **ctx})
+    resp = templates.TemplateResponse(request, name, {"disclaimer": DISCLAIMER, **ctx})
+    resp.headers["Cache-Control"] = "no-cache"  # HTML всегда ревалидируется → не залипает старая ссылка на CSS
+    return resp
 
 
 @app.get("/", response_class=HTMLResponse)

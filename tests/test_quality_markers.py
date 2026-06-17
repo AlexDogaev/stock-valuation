@@ -14,7 +14,8 @@ def test_proven_quality():
 
 
 def test_low_score_ordinary():
-    assert qm(structural_score=2) == "ordinary"
+    # порог MIN_SCORE=2 (калибровка по X5): балл < 2 → ordinary
+    assert qm(structural_score=1) == "ordinary"
 
 
 def test_hyper_growth_not_proven():

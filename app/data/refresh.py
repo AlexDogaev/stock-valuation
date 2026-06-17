@@ -70,3 +70,18 @@ def job_recompute_markers() -> dict:
                 "messages": [e["message"] for e in events][:10]}
 
     return _run("recompute_markers", _recompute)
+
+
+def job_macro_analysis() -> dict:
+    """Глубокий Opus-разбор макро-режима + оценка риска ШОКА (advisory). Без ключа — graceful."""
+    from app.data.db import get_db
+    from app.core import llm_macro
+
+    def _analyze():
+        with get_db() as db:
+            a = llm_macro.analyze_macro(db)
+            s = llm_macro.assess_shock(db)
+        return {"analysis_ok": "error" not in a, "shock_ok": "error" not in s,
+                "shock_pct": s.get("aggregate_pct") if "error" not in s else None}
+
+    return _run("macro_analysis", _analyze)

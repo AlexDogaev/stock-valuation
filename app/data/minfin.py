@@ -34,10 +34,11 @@ def current_regime() -> dict:
     from app.core.barbell import regime_allocation
     from dataclasses import asdict
     alloc = regime_allocation(regime=r.regime, defense_share=r.defense,
-                              attack_share=r.attack)
+                              attack_share=r.attack, deval_pressure=r.deval_pressure)
     return {
         "regime": r.regime, "defense": r.defense, "attack": r.attack,
         "budget_sign": round(r.budget_sign, 2), "note": r.note,
+        "deval_score": r.deval_score, "deval_pressure": r.deval_pressure,
         "allocation": asdict(alloc),
         "inputs": {
             "nwf_liquid_pct": m.get("nwf_liquid_pct"),

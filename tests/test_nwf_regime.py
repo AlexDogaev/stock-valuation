@@ -31,3 +31,26 @@ def test_shock_threshold_boundary():
     r = nwf_regime(liquid_nwf_pct=5.0, months_to_zero=60, urals=70, cutoff=60,
                    market_drawdown=0.27)
     assert r.regime != "SHOCK"
+
+
+def test_deficit_drives_risk():
+    # горизонт ФНБ здоровый, но тонкий ФНБ + глубокий дефицит → RISK (дефицит = драйвер)
+    r = nwf_regime(liquid_nwf_pct=2.5, months_to_zero=36, urals=45, cutoff=60,
+                   market_drawdown=0.05)
+    assert r.deval_score == 3      # ФНБ тонкий +1, дефицит ≥10 +2
+    assert r.regime == "RISK"
+
+
+def test_deval_pressure_high():
+    r = nwf_regime(liquid_nwf_pct=1.0, months_to_zero=8, urals=48, cutoff=60,
+                   market_drawdown=0.05)
+    assert r.deval_score == 6
+    assert r.deval_pressure == "high"
+    assert r.regime == "RISK"
+
+
+def test_normal_low_pressure():
+    r = nwf_regime(liquid_nwf_pct=5.0, months_to_zero=60, urals=70, cutoff=60,
+                   market_drawdown=0.05)
+    assert r.deval_score == 0
+    assert r.deval_pressure == "low"

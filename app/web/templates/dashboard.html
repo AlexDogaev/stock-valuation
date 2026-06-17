@@ -1,29 +1,74 @@
 {% extends "base.html" %}
+{% block head %}
+<style>
+  /* Скринер: суть на виду, плотные колонки — под «Все колонки». Воздух между строк. */
+  .toolbar { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
+  .toolbar .actions { display: flex; gap: 18px; align-items: center; flex: none; flex-wrap: wrap; }
+  .linkbtn {
+    background: none; border: 0; padding: 8px 0; color: var(--muted); font-family: inherit;
+    font-size: 12px; letter-spacing: .15em; text-transform: uppercase; cursor: pointer;
+    border-bottom: 1px solid transparent; transition: color .15s, border-color .15s; white-space: nowrap;
+  }
+  .linkbtn:hover, .linkbtn.on { color: var(--ink); border-bottom-color: var(--hair); filter: none; }
+
+  #tbl { margin-top: 6px; }
+  #tbl th, #tbl td { padding: 15px 16px; }
+  #tbl td:first-child a { font-size: 16px; }
+  #tbl .col-extra { display: none; }
+  #tbl.show-all .col-extra { display: table-cell; }
+
+  /* клик по «Качество» → строка с обоснованием Опуса */
+  #tbl td.qual-cell { cursor: pointer; white-space: nowrap; }
+  #tbl td.qual-cell:hover { color: var(--ink); }
+  #tbl td.qual-cell .ic { color: var(--faint); margin-left: 7px; font-size: 12px; }
+  #tbl td.qual-cell:hover .ic { color: var(--accent); }
+  .qual-exp > td { padding: 0 !important; background: var(--hair-2); text-align: left; }
+  .qual-exp .inner { padding: 2px 16px 22px; }
+  .qual-exp .lbl { display: block; font-size: 11px; letter-spacing: .15em; text-transform: uppercase; color: var(--muted); margin: 14px 0 8px; }
+  .qual-exp .txt { color: #c7c4bd; line-height: 1.7; max-width: 76ch; font-size: 15px; }
+
+  /* секторный режим */
+  .sector-row > td { background: var(--hair-2); cursor: pointer; padding: 14px 16px; border-top: 1px solid var(--hair); border-bottom: 1px solid var(--hair); }
+  .sector-row:hover > td { background: rgba(255,255,255,.06); }
+  .sec-head { display: flex; justify-content: space-between; align-items: center; gap: 22px; flex-wrap: wrap; }
+  .sec-name { font-weight: 600; font-size: 15.5px; letter-spacing: .01em; }
+  .sec-name .cnt { color: var(--muted); font-weight: 400; font-size: 13px; margin-left: 6px; }
+  .sec-metrics { display: flex; gap: 28px; flex-wrap: wrap; font-size: 13.5px; font-family: var(--mono); }
+  .sec-m .lbl { color: var(--muted); text-transform: uppercase; letter-spacing: .1em; font-size: 10.5px; margin-right: 8px; font-family: var(--font-sans); }
+  .lt { font-weight: 700; padding: 0 3px; }
+  .lt.buy { color: var(--buy); } .lt.edge { color: var(--edge); } .lt.avoid { color: var(--avoid); }
+  #tbl tr.sec-issuer > td:first-child { padding-left: 32px; }
+</style>
+{% endblock %}
 {% block content %}
-<div style="display:flex;align-items:flex-start;justify-content:space-between;gap:16px">
+<div class="toolbar">
   <div>
     <h1>Скринер эмитентов</h1>
     <p class="sub">Троичный сигнал под твои настройки. Полная = (1+g_итог)·сжатие − 1 + дивдох; реальная — над личным дефлятором.</p>
   </div>
-  <button class="ghost" id="refresh" style="flex:none">↻ Обновить котировки MOEX</button>
+  <div class="actions">
+    <button class="linkbtn" id="view-toggle" type="button" title="Список или группировка по секторам">▤ По секторам</button>
+    <button class="linkbtn" id="cols-toggle" type="button">Все колонки +</button>
+    <button class="ghost" id="refresh">↻ Обновить котировки MOEX</button>
+  </div>
 </div>
 <div class="panel" style="padding:0;overflow:hidden">
   <table id="tbl">
     <thead>
       <tr>
         <th data-k="name">Эмитент</th>
-        <th data-k="sector">Сектор</th>
+        <th data-k="sector" class="col-extra">Сектор</th>
         <th data-k="price">Цена, ₽</th>
-        <th data-k="cap">Капа, млрд</th>
+        <th data-k="cap" class="col-extra">Капа, млрд</th>
         <th data-k="pe">P/E</th>
-        <th data-k="div">Дивдох</th>
-        <th data-k="gf">g итог</th>
-        <th data-k="comp">Сжатие</th>
-        <th data-k="nom">Полная</th>
+        <th data-k="div" class="col-extra">Дивдох</th>
+        <th data-k="gf" class="col-extra">g итог</th>
+        <th data-k="comp" class="col-extra">Сжатие</th>
+        <th data-k="nom" class="col-extra">Полная</th>
         <th data-k="real">Реал.</th>
-        <th data-k="target" title="Прогнозная цена котировки через 3 года">Цель 3г, ₽</th>
+        <th data-k="target" class="col-extra" title="Прогнозная цена котировки через 3 года">Цель 3г, ₽</th>
         <th data-k="upside" title="Рост котировки за 3 года (без дивидендов)">Апсайд 3г</th>
-        <th data-k="mult">Структ.×</th>
+        <th data-k="mult" class="col-extra">Структ.×</th>
         <th data-k="sig">Сигнал</th>
         <th data-k="qual">Качество</th>
       </tr>
@@ -37,41 +82,92 @@
 <script>
 let DATA = [];
 let sortKey = "real", sortDir = -1;
+let viewMode = "list";              // list | sectors
+const expandedSectors = {};
 
-function render() {
-  const get = {
-    name: x => x.name, sector: x => x.sector || "",
-    price: x => x.market.price, cap: x => x.market.cap_bln, pe: x => x.market.pe,
-    div: x => x.inputs.div_yield.value, gf: x => x.calc.g_final,
-    comp: x => x.calc.compression, nom: x => x.calc.full_nominal,
-    real: x => x.real_return,
-    target: x => x.forecast.price_target, upside: x => x.forecast.price_upside,
-    mult: x => x.structural.multiplier,
-    sig: x => x.signal, qual: x => x.quality_marker,
-  };
+const getters = {
+  name: x => x.name, sector: x => x.sector || "",
+  price: x => x.market.price, cap: x => x.market.cap_bln, pe: x => x.market.pe,
+  div: x => x.inputs.div_yield.value, gf: x => x.calc.g_final,
+  comp: x => x.calc.compression, nom: x => x.calc.full_nominal,
+  real: x => x.real_return,
+  target: x => x.forecast.price_target, upside: x => x.forecast.price_upside,
+  mult: x => x.structural.multiplier,
+  sig: x => x.signal, qual: x => x.quality_marker,
+};
+
+function rowCells(x) {
+  return `
+      <td><a href="/issuer/${x.secid}">${x.name}</a> <small class="muted">${x.secid}</small></td>
+      <td class="muted col-extra">${x.sector || ""}</td>
+      <td class="num">${x.market.price !== null ? x.market.price.toLocaleString("ru") : "—"}</td>
+      <td class="num col-extra">${x.market.cap_bln !== null ? Math.round(x.market.cap_bln).toLocaleString("ru") : "—"}</td>
+      <td class="num">${x.market.pe !== null ? x.market.pe : "<span class='muted'>н/д</span>"}</td>
+      <td class="num col-extra">${pct(x.inputs.div_yield.value)}${x.inputs.div_yield.spike ? ' <span title="TTM-аномалия: вероятно разовый спецдивиденд" style="color:var(--edge)">⚠</span>' : ''}</td>
+      <td class="num col-extra">${pct(x.calc.g_final)}</td>
+      <td class="num col-extra">${num(x.calc.compression)}</td>
+      <td class="num col-extra">${pct(x.calc.full_nominal)}</td>
+      <td class="num">${pctSigned(x.real_return)}</td>
+      <td class="num col-extra">${x.forecast.price_target !== null ? Math.round(x.forecast.price_target).toLocaleString("ru") : "—"}</td>
+      <td class="num">${pctSigned(x.forecast.price_upside)}</td>
+      <td class="num col-extra">${num(x.structural.multiplier, 2)}</td>
+      <td>${sigBadge(x.signal)}</td>
+      <td class="qual-cell" data-secid="${x.secid}" title="Показать обоснование Опуса"><small>${x.quality_marker==='PROVEN_QUALITY'?'<b style="color:var(--buy)">★ доказ.</b>':(x.quality_marker==='PROSPECTIVE_QUALITY'?'<b style="color:var(--edge)">◑ персп.</b>':(x.quality_marker==='PROSPECTIVE_NO_QUALITY'?'○ спекул.':'<span class="muted">◦ обычн.</span>'))}</small><span class="ic">ⓘ</span></td>`;
+}
+
+function rowHtml(x, opt) {
+  opt = opt || {};
+  const cls = opt.sector ? ' class="sec-issuer"' : '';
+  const hide = (opt.sector && !opt.open) ? ' style="display:none"' : '';
+  return `<tr${cls}${hide}>${rowCells(x)}</tr>`;
+}
+
+function median(nums) {
+  const v = nums.filter(n => n != null).sort((a, b) => a - b);
+  if (!v.length) return null;
+  const m = Math.floor(v.length / 2);
+  return v.length % 2 ? v[m] : (v[m - 1] + v[m]) / 2;
+}
+
+function sectorHeaderHtml(sec, items, open) {
+  const med = median(items.map(x => x.real_return));
+  const buy = items.filter(x => x.signal === "ПОКУПАЙ").length;
+  const edge = items.filter(x => x.signal === "ГРАНИЦА").length;
+  const avoid = items.filter(x => x.signal === "ВОЗДЕРЖИСЬ").length;
+  const best = items.reduce((a, b) => ((b.real_return ?? -99) > (a.real_return ?? -99) ? b : a));
+  return `<tr class="sector-row" data-sector="${sec}"><td colspan="15"><div class="sec-head">
+      <span class="sec-name">${open ? "▾" : "▸"} ${sec} <span class="cnt">${items.length}</span></span>
+      <span class="sec-metrics">
+        <span class="sec-m"><span class="lbl">медиана реал.</span>${pctSigned(med)}</span>
+        <span class="sec-m"><span class="lbl">сигналы</span><span class="lt buy">${buy}</span> <span class="lt edge">${edge}</span> <span class="lt avoid">${avoid}</span></span>
+        <span class="sec-m"><span class="lbl">лучшая</span>${best.name} ${pctSigned(best.real_return)}</span>
+      </span></div></td></tr>`;
+}
+
+function sortData() {
   DATA.sort((a, b) => {
-    const va = get[sortKey](a), vb = get[sortKey](b);
+    const va = getters[sortKey](a), vb = getters[sortKey](b);
     if (typeof va === "string") return sortDir * va.localeCompare(vb, "ru");
     return sortDir * ((va ?? -99) - (vb ?? -99));
   });
-  document.getElementById("rows").innerHTML = DATA.map(x => `
-    <tr>
-      <td><a href="/issuer/${x.secid}">${x.name}</a> <small class="muted">${x.secid}</small></td>
-      <td class="muted">${x.sector || ""}</td>
-      <td class="num">${x.market.price !== null ? x.market.price.toLocaleString("ru") : "—"}</td>
-      <td class="num">${x.market.cap_bln !== null ? Math.round(x.market.cap_bln).toLocaleString("ru") : "—"}</td>
-      <td class="num">${x.market.pe !== null ? x.market.pe : "<span class='muted'>н/д</span>"}</td>
-      <td class="num">${pct(x.inputs.div_yield.value)}${x.inputs.div_yield.spike ? ' <span title="TTM-аномалия: вероятно разовый спецдивиденд" style="color:var(--edge)">⚠</span>' : ''}</td>
-      <td class="num">${pct(x.calc.g_final)}</td>
-      <td class="num">${num(x.calc.compression)}</td>
-      <td class="num">${pct(x.calc.full_nominal)}</td>
-      <td class="num">${pctSigned(x.real_return)}</td>
-      <td class="num">${x.forecast.price_target !== null ? Math.round(x.forecast.price_target).toLocaleString("ru") : "—"}</td>
-      <td class="num">${pctSigned(x.forecast.price_upside)}</td>
-      <td class="num">${num(x.structural.multiplier, 2)}</td>
-      <td>${sigBadge(x.signal)}</td>
-      <td><small title="${x.quality_label}">${x.quality_marker==='PROVEN_QUALITY'?'★ доказ.':(x.quality_marker==='PROSPECTIVE_QUALITY'?'◑ персп.':(x.quality_marker==='PROSPECTIVE_NO_QUALITY'?'○ спекул.':'·'))}</small></td>
-    </tr>`).join("");
+}
+
+function render() {
+  sortData();
+  const rows = document.getElementById("rows");
+  if (viewMode === "sectors") {
+    const groups = {};
+    DATA.forEach(x => { const s = x.sector || "—"; (groups[s] = groups[s] || []).push(x); });
+    const order = Object.keys(groups).sort((a, b) =>
+      (median(groups[b].map(x => x.real_return)) ?? -99) - (median(groups[a].map(x => x.real_return)) ?? -99));
+    rows.innerHTML = order.map(sec => {
+      const open = !!expandedSectors[sec];
+      return sectorHeaderHtml(sec, groups[sec], open) +
+             groups[sec].map(x => rowHtml(x, { sector: true, open })).join("");
+    }).join("");
+  } else {
+    rows.innerHTML = DATA.map(x => rowHtml(x)).join("");
+  }
 }
 
 async function load() {
@@ -94,10 +190,57 @@ document.querySelectorAll("th[data-k]").forEach(th => th.addEventListener("click
   if (sortKey === k) sortDir = -sortDir; else { sortKey = k; sortDir = -1; }
   render();
 }));
+document.getElementById("view-toggle").addEventListener("click", (e) => {
+  viewMode = viewMode === "list" ? "sectors" : "list";
+  e.target.textContent = viewMode === "list" ? "▤ По секторам" : "☰ Списком";
+  e.target.classList.toggle("on", viewMode === "sectors");
+  render();
+});
+document.getElementById("cols-toggle").addEventListener("click", (e) => {
+  const on = document.getElementById("tbl").classList.toggle("show-all");
+  e.target.textContent = on ? "Все колонки −" : "Все колонки +";
+  e.target.classList.toggle("on", on);
+});
 document.getElementById("refresh").addEventListener("click", async (e) => {
   e.target.textContent = "Обновляю…"; e.target.disabled = true;
   try { await sendJSON("/refresh", "POST", {}); await load(); }
   finally { e.target.textContent = "↻ Обновить котировки MOEX"; e.target.disabled = false; }
+});
+
+// делегирование кликов в теле таблицы: раскрытие сектора + обоснование Опуса по «Качество»
+const ratCache = {};
+document.getElementById("rows").addEventListener("click", async (ev) => {
+  const secRow = ev.target.closest(".sector-row");
+  if (secRow) {                                            // свернуть/развернуть сектор
+    const sec = secRow.dataset.sector;
+    expandedSectors[sec] = !expandedSectors[sec];
+    render();
+    return;
+  }
+  const cell = ev.target.closest(".qual-cell");
+  if (!cell) return;
+  const row = cell.closest("tr");
+  const next = row.nextElementSibling;
+  if (next && next.classList.contains("qual-exp")) { next.remove(); return; }
+  document.querySelectorAll("#rows .qual-exp").forEach(e => e.remove());
+  const secid = cell.dataset.secid;
+  const exp = document.createElement("tr");
+  exp.className = "qual-exp";
+  exp.innerHTML = `<td colspan="15"><div class="inner"><div class="txt">Загрузка…</div></div></td>`;
+  row.after(exp);
+  const inner = exp.querySelector(".inner");
+  try {
+    if (ratCache[secid] === undefined)
+      ratCache[secid] = await getJSON("/issuers/" + secid + "/llm_draft").catch(() => null);
+    const d = ratCache[secid];
+    const item = DATA.find(x => x.secid === secid);
+    const rationale = (d && d.rationale) ? d.rationale
+                    : (item && item.structural.note) ? item.structural.note
+                    : "Обоснование Opus для этого эмитента ещё не сгенерировано.";
+    const evalRows = item ? metricEvalRowsHTML(item) : "";
+    inner.innerHTML = `<span class="lbl">Обоснование оценки · Opus</span><div class="txt">${glossarize(rationale)}</div>`
+      + (evalRows ? `<span class="lbl">Оценка метрик</span><div class="meval">${evalRows}</div>` : "");
+  } catch (e) { inner.innerHTML = '<div class="txt">Ошибка загрузки обоснования.</div>'; }
 });
 load();
 </script>

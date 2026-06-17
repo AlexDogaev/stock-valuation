@@ -14,6 +14,11 @@ from dataclasses import dataclass, field
 # Атака: ядро доказанного качества (целевой минимум ~30% портфеля, если хватает)
 # + резерв на добор перспективного качества в шок.
 DEF_OFZ, DEF_GOLD, DEF_FLOATER = 0.60, 0.28, 0.12
+# девал-тилт: смещение защиты из рублёвых ОФЗ-фикс в золото/флоатеры (ОФЗ, золото, флоатер)
+DEF_SPLIT_DEVAL = {
+    "elevated": (0.40, 0.40, 0.20),
+    "high":     (0.25, 0.50, 0.25),
+}
 CORE_TARGET = 0.30  # целевая доля ядра доказанного качества от всего портфеля
 
 
@@ -27,12 +32,18 @@ class RegimeAllocation:
     notes: list[str] = field(default_factory=list)
 
 
-def regime_allocation(*, regime: str, defense_share: float, attack_share: float) -> RegimeAllocation:
-    """Собрать структуру портфеля по режиму (из nwf_regime: defense/attack)."""
+def regime_allocation(*, regime: str, defense_share: float, attack_share: float,
+                      deval_pressure: str = "low") -> RegimeAllocation:
+    """Собрать структуру портфеля по режиму (из nwf_regime: defense/attack).
+
+    deval_pressure (low|elevated|high) тилтует СПЛИТ защиты: из рублёвых ОФЗ-фикс
+    в золото/флоатеры (защита от девальвации/инфляции).
+    """
+    ofz_w, gold_w, fl_w = DEF_SPLIT_DEVAL.get(deval_pressure, (DEF_OFZ, DEF_GOLD, DEF_FLOATER))
     defense = {
-        "ofz_fixed": round(defense_share * DEF_OFZ, 3),
-        "gold": round(defense_share * DEF_GOLD, 3),
-        "floater": round(defense_share * DEF_FLOATER, 3),
+        "ofz_fixed": round(defense_share * ofz_w, 3),
+        "gold": round(defense_share * gold_w, 3),
+        "floater": round(defense_share * fl_w, 3),
     }
     core = min(attack_share, CORE_TARGET)
     reserve = round(max(0.0, attack_share - core), 3)
@@ -45,6 +56,9 @@ def regime_allocation(*, regime: str, defense_share: float, attack_share: float)
         notes.append("RISK: перевес в защиту; ядро доказанного качества держим, добор отложен.")
     else:
         notes.append("NORMAL: базовый поток в атаку, резерв на шоковый добор перспективного.")
+    if deval_pressure != "low":
+        notes.append("Девал-тилт: защита смещена из ОФЗ-фикс в золото+флоатеры; "
+                     "в атаке перевес экспортёров (выручка в валюте).")
     if defense.get("gold"):
         notes.append(f"Золото ≈ {defense['gold']*100:.0f}% портфеля (физический металл, хвостовая защита).")
     return RegimeAllocation(

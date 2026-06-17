@@ -1,4 +1,62 @@
 {% extends "base.html" %}
+{% block head %}
+<style>
+  /* ── Карточка эмитента: первый экран. База (шрифты, панели, кнопки) — глобально в app.css ── */
+  #card { max-width: 860px; margin: 0 auto; }
+  #card .vname {
+    font-family: var(--font-display); font-weight: 500;
+    font-size: clamp(30px, 5vw, 44px); line-height: 1.04; letter-spacing: -.012em; margin: 0;
+  }
+  #card .vmeta {
+    margin-top: 10px; font-size: 12.5px; letter-spacing: .16em;
+    text-transform: uppercase; color: var(--muted);
+  }
+  #card .vverdict {
+    margin-top: 22px; display: flex; align-items: baseline; gap: 11px; flex-wrap: wrap; font-size: 14px;
+  }
+  #card .vsignal { font-weight: 600; letter-spacing: .09em; text-transform: uppercase; }
+  #card .vsignal.buy { color: var(--buy); }
+  #card .vsignal.edge { color: var(--edge); }
+  #card .vsignal.avoid { color: var(--avoid); }
+  #card .vsep { color: var(--faint); }
+  #card .vquality { color: var(--muted); }
+  #card .vquality.buy { color: var(--q-green); }
+  #card .vquality.edge { color: var(--q-amber); }
+  #card .vflag { color: var(--avoid); font-size: 12px; letter-spacing: .04em; }
+
+  #card .vmetrics {
+    display: flex; flex-wrap: wrap; margin-top: 38px;
+    border-top: 1px solid var(--hair); border-bottom: 1px solid var(--hair);
+  }
+  #card .vmetric { flex: 1 1 150px; padding: 22px 24px 22px 0; }
+  #card .vm-k {
+    display: block; font-size: 11.5px; letter-spacing: .15em; text-transform: uppercase; color: var(--muted);
+  }
+  #card .vm-v {
+    display: block; margin-top: 10px; font-family: var(--mono);
+    font-size: clamp(23px, 3.2vw, 30px); font-weight: 500;
+    font-feature-settings: "tnum" 1; letter-spacing: -.01em;
+  }
+
+  #card .vrationale { margin-top: 34px; max-width: 64ch; }
+  #card .vrationale .vm-k { margin-bottom: 12px; }
+  #card .vrationale p { margin: 0; font-size: 17.5px; line-height: 1.75; color: #c7c4bd; }
+
+  #card .vtoggle {
+    margin-top: 38px; background: none; border: 0; padding: 8px 0;
+    color: var(--muted); font-family: inherit; font-size: 12.5px;
+    letter-spacing: .15em; text-transform: uppercase; cursor: pointer;
+    border-bottom: 1px solid transparent; transition: color .15s, border-color .15s;
+  }
+  #card .vtoggle:hover { color: var(--ink); border-bottom-color: var(--hair); filter: none; }
+
+  #card #details { margin-top: 30px; }
+
+  /* оценка метрик: контейнер карточки; строки/цвета — глобально в app.css */
+  #card .vmetrics-eval { margin-top: 32px; }
+  #card .meval { margin-top: 12px; }
+</style>
+{% endblock %}
 {% block content %}
 <p class="sub"><a href="/">← Скринер</a></p>
 <div id="card"><p class="muted">Загрузка…</p></div>
@@ -6,13 +64,27 @@
 {% block scripts %}
 <script>
 const SECID = "{{ secid }}";
+let DRAFT = null;  // черновик Opus (для инлайн-обоснования на первом экране)
 
 function kv(k, v, src) {
   return `<div class="kv"><span class="k">${k}</span><span><span class="v">${v}</span>${src ? ` <span class="src">${src}</span>` : ""}</span></div>`;
 }
 
+// оценка метрик: общий расчёт (app.js metricEvalRowsHTML) + контейнер карточки
+function metricEvalBlock(x) {
+  const rows = metricEvalRowsHTML(x);
+  if (!rows) return "";
+  return `<section class="vmetrics-eval">
+    <span class="vm-k">Оценка метрик</span>
+    <div class="meval">${rows}</div>
+    <p class="meval-note">Пороги монотонных метрик. У банков спред = ROE − стоимость капитала
+      (ROIC−WACC к банкам не применим), калиброван под высокие ставки. ROE у банков частично от плеча.
+      Payout — профиль (зрелость/рост), не «сила». Наведи на аббревиатуру — расшифровка.</p>
+  </section>`;
+}
+
 function render(x) {
-  const i = x.inputs, s = x.structural, c = x.calc;
+  const i = x.inputs, s = x.structural, c = x.calc, m = x.market, f = x.forecast;
   const dims = [["Ров","moat"],["Дизрупция","disruption"],["Секул.TAM","tam"],
                 ["Регуляторика","regulation"],["Демо","demo"],["Госнавес*","gosnaves"]];
   const chips = dims.map(([lbl,k]) =>
@@ -20,13 +92,13 @@ function render(x) {
 
   let mature = "";
   if (x.mature && !x.mature.error) {
-    const m = x.mature;
+    const mt = x.mature;
     mature = `<div class="panel"><h2>Зрелая оценка (P/B = (ROE−g)/(r−g))</h2><div class="grid">
-      <div>${kv("Справедливый P/B", num(m.fair_pb))}${kv("Текущий P/B", num(m.current_pb))}
-           ${kv("Справедливая капа", num(m.fair_cap_bln,0)+" млрд")}${kv("Вердикт", m.verdict)}</div>
-      <div>${kv("Implied номинальная", pct(m.implied_nominal))}${kv("Implied реальная", pct(m.implied_real))}
-           ${kv("Спред r−g", pct(m.spread)+" ("+m.confidence+")")}
-           ${kv("Нужная просадка под hurdle", m.needed_drawdown===null?"—":pctSigned(m.needed_drawdown))}</div>
+      <div>${kv("Справедливый P/B", num(mt.fair_pb))}${kv("Текущий P/B", num(mt.current_pb))}
+           ${kv("Справедливая капа", num(mt.fair_cap_bln,0)+" млрд")}${kv("Вердикт", mt.verdict)}</div>
+      <div>${kv("Implied номинальная", pct(mt.implied_nominal))}${kv("Implied реальная", pct(mt.implied_real))}
+           ${kv("Спред r−g", pct(mt.spread)+" ("+mt.confidence+")")}
+           ${kv("Нужная просадка под hurdle", mt.needed_drawdown===null?"—":pctSigned(mt.needed_drawdown))}</div>
     </div></div>`;
   } else if (x.mature && x.mature.error) {
     mature = `<div class="warn">Зрелая оценка: ${x.mature.error}</div>`;
@@ -41,7 +113,6 @@ function render(x) {
     </div></div>`;
   }
 
-  const f = x.forecast;
   const fcast = `<div class="panel"><h2>Прогноз на ${f.years} года</h2><div class="grid">
     <div>${kv("Текущая цена", f.price_now!==null?f.price_now+" ₽":"—")}
          ${kv("Прогнозная цена через "+f.years+" г", f.price_target!==null?f.price_target+" ₽":"—", "проекция тела")}
@@ -55,21 +126,47 @@ function render(x) {
 
   const warns = (x.warnings||[]).map(w => `<div class="warn">${w}</div>`).join("");
 
-  document.getElementById("card").innerHTML = `
-    <h1>${x.name} <small class="muted">${x.secid} · ${x.sector||""}</small> ${sigBadge(x.signal)}
-      <span class="sig ${x.quality_marker==='PROVEN_QUALITY'?'buy':(x.quality_marker==='PROSPECTIVE_QUALITY'?'edge':'')}"
-            title="Маркер качества">${x.quality_label}</span>
-      ${x.needs_review ? '<span class="sig avoid" title="авто-метрики резко изменились">⚠ пересмотр</span>' : ''}</h1>
-    <p class="sub">Реальная доходность над дефлятором: <b>${pctSigned(x.real_return)}</b>
-      ${x.type ? "· тип: "+x.type : ""}</p>
+  // обоснование Opus для первого экрана (полный текст из черновика, иначе note)
+  const rationale = (DRAFT && DRAFT.rationale) ? DRAFT.rationale
+                   : (s.note || "Обоснование Opus ещё не сгенерировано — нажми «🤖 LLM-черновик» в индикаторах.");
+  const qcls = x.quality_marker==='PROVEN_QUALITY' ? 'buy'
+             : (x.quality_marker==='PROSPECTIVE_QUALITY' ? 'edge' : '');
+  const priceStr = m.price!==null ? m.price.toLocaleString('ru-RU') + " ₽" : "—";
 
+  // ── ПЕРВЫЙ ЭКРАН: оценка, цена, P/E, реальная доходность, апсайд, обоснование ──
+  const summary = `
+    <header>
+      <h1 class="vname">${x.name}</h1>
+      <div class="vmeta">${x.secid} · ${x.sector||""}</div>
+      <div class="vverdict">
+        <span class="vsignal ${sigClass(x.signal)}">${x.signal}</span>
+        <span class="vsep">/</span>
+        <span class="vquality ${qcls}">${x.quality_label}</span>
+        ${x.needs_review ? '<span class="vflag">⚠ пересмотр</span>' : ''}
+      </div>
+    </header>
+    <section class="vmetrics">
+      <div class="vmetric"><span class="vm-k">Цена</span><span class="vm-v">${priceStr}</span></div>
+      <div class="vmetric"><span class="vm-k">P / E</span><span class="vm-v">${m.pe!==null?m.pe:(m.loss?"убыток":"н/д")}</span></div>
+      <div class="vmetric"><span class="vm-k">Реальная · год</span><span class="vm-v">${pctSigned(x.real_return)}</span></div>
+      <div class="vmetric"><span class="vm-k">Апсайд · ${f.years} г</span><span class="vm-v">${pctSigned(f.price_upside)}</span></div>
+    </section>
+    <section class="vrationale">
+      <span class="vm-k">Обоснование оценки · Opus</span>
+      <p>${glossarize(rationale)}</p>
+    </section>
+    ${metricEvalBlock(x)}
+    <button class="vtoggle" id="toggle-details" type="button">Индикаторы +</button>`;
+
+  // ── ПОД КНОПКОЙ «ИНДИКАТОРЫ»: всё остальное ──
+  const details = `<div id="details" hidden>
     <div class="panel"><h2>Рыночные данные</h2><div class="grid">
-      <div>${kv("Цена бумаги", x.market.price!==null?x.market.price+" ₽":"—", "MOEX "+(x.market.fetched_at||""))}
-           ${kv("Капитализация", x.market.cap_bln!==null?x.market.cap_bln+" млрд ₽":"—", "MOEX")}
-           ${kv("Чистая прибыль TTM", x.market.net_profit_bln!==null?x.market.net_profit_bln+" млрд":"—", "T-Invest")}
-           ${kv("Собств. капитал", x.market.equity_bln!==null?x.market.equity_bln+" млрд":"—", "T-Invest")}</div>
-      <div>${kv("P/E", x.market.pe!==null?x.market.pe:(x.market.loss?"убыток":"н/д"), x.market.pe_source||"нет прибыли в данных")}
-           ${kv("P/B", x.market.pb!==null?x.market.pb:"н/д", x.market.pb!==null?"капа / капитал":(x.market.negative_equity?"отриц. капитал":"нет капитала"))}</div>
+      <div>${kv("Цена бумаги", m.price!==null?m.price+" ₽":"—", "MOEX "+(m.fetched_at||""))}
+           ${kv("Капитализация", m.cap_bln!==null?m.cap_bln+" млрд ₽":"—", "MOEX")}
+           ${kv("Чистая прибыль TTM", m.net_profit_bln!==null?m.net_profit_bln+" млрд":"—", "T-Invest")}
+           ${kv("Собств. капитал", m.equity_bln!==null?m.equity_bln+" млрд":"—", "T-Invest")}</div>
+      <div>${kv("P/E", m.pe!==null?m.pe:(m.loss?"убыток":"н/д"), m.pe_source||"нет прибыли в данных")}
+           ${kv("P/B", m.pb!==null?m.pb:"н/д", m.pb!==null?"капа / капитал":(m.negative_equity?"отриц. капитал":"нет капитала"))}</div>
     </div></div>
 
     <div class="panel"><h2>Входные метрики (с источником)</h2><div class="grid">
@@ -116,22 +213,35 @@ function render(x) {
            <input type="number" min="-2" max="2" step="1" id="f-${k}" value="${s[k]}"></div>`).join("")}
       </div>
       <label style="margin-top:10px;display:flex;align-items:center;gap:8px;cursor:pointer">
-        <input type="checkbox" id="f-monetization" ${x.structural.monetization_proven?'checked':''}>
+        <input type="checkbox" id="f-monetization" ${s.monetization_proven?'checked':''}>
         Монетизация доказана (класс B) — даёт «перспективное качество» для добора в шок</label>
       <div style="margin-top:12px">
         <button class="ghost" id="llm-draft" title="Opus предложит баллы — проверь и сохрани">🤖 LLM-черновик</button>
         <button id="save">Сохранить и пересчитать</button>
         <span id="saved" class="muted" style="margin-left:10px"></span></div>
       <div id="llm-rationale" class="sub" style="margin-top:8px"></div>
-    </div>`;
+    </div>
+  </div>`;
+
+  document.getElementById("card").innerHTML = summary + details;
+
+  const toggle = document.getElementById("toggle-details");
+  toggle.addEventListener("click", () => {
+    const d = document.getElementById("details");
+    const hidden = d.hasAttribute("hidden");
+    if (hidden) d.removeAttribute("hidden"); else d.setAttribute("hidden", "");
+    toggle.textContent = hidden ? "Индикаторы −" : "Индикаторы +";
+  });
 
   document.getElementById("save").addEventListener("click", async () => {
     const body = {};
     dims.forEach(([_,k]) => body[k] = parseInt(document.getElementById("f-"+k).value)||0);
     body.monetization_proven = document.getElementById("f-monetization").checked ? 1 : 0;
     const res = await sendJSON(`/issuers/${SECID}/structural`, "PUT", body);
-    document.getElementById("saved").textContent = "Сохранено ✓";
     render(res);
+    document.getElementById("details").removeAttribute("hidden");
+    document.getElementById("toggle-details").textContent = "Индикаторы −";
+    document.getElementById("saved").textContent = "Сохранено ✓";
   });
 
   document.getElementById("llm-draft").addEventListener("click", async (e) => {
@@ -140,20 +250,27 @@ function render(x) {
     try {
       const r = await sendJSON(`/issuers/${SECID}/llm_draft`, "POST", {});
       if (r.error) { rat.innerHTML = `<span class="warn">⚠ ${r.error}</span>`; return; }
-      const d = r.draft;
+      DRAFT = r.draft;
       dims.forEach(([_, k]) => {
         const el = document.getElementById("f-" + k);
-        if (el && k in d) el.value = d[k];
+        if (el && k in r.draft) el.value = r.draft[k];
       });
-      document.getElementById("f-monetization").checked = d.monetization_proven === 1;
-      rat.innerHTML = `🤖 <b>Черновик Opus:</b> ${d.rationale}
+      document.getElementById("f-monetization").checked = r.draft.monetization_proven === 1;
+      rat.innerHTML = `🤖 <b>Черновик Opus:</b> ${r.draft.rationale}
         <i>— проверь баллы и нажми «Сохранить», если согласен (LLM не применяет сам).</i>`;
     } catch (err) { rat.innerHTML = `<span class="warn">Ошибка: ${err.message}</span>`; }
     finally { e.target.textContent = "🤖 LLM-черновик"; e.target.disabled = false; }
   });
 }
 
-getJSON("/issuers/" + SECID).then(render).catch(e =>
+// загрузка: эмитент + черновик Opus (для инлайн-обоснования) параллельно
+Promise.all([
+  getJSON("/issuers/" + SECID),
+  getJSON("/issuers/" + SECID + "/llm_draft").catch(() => null),
+]).then(([x, draft]) => {
+  DRAFT = (draft && draft.rationale) ? draft : null;
+  render(x);
+}).catch(e =>
   document.getElementById("card").innerHTML = `<div class="warn">Ошибка: ${e.message}</div>`);
 </script>
 {% endblock %}

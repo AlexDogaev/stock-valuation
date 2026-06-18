@@ -153,6 +153,13 @@ CREATE TABLE IF NOT EXISTS rate_trajectory (
     created_at     TEXT
 );
 
+-- ручной ввод риторики ЦБ (override авто-фетча keypr) для градации траектории
+CREATE TABLE IF NOT EXISTS rate_signal (
+    id          INTEGER PRIMARY KEY CHECK (id = 1),
+    text        TEXT,
+    updated_at  TEXT
+);
+
 -- форвардная вероятность ШОКА по сценариям (субъективная оценка Opus, кеш)
 CREATE TABLE IF NOT EXISTS shock_risk (
     id             INTEGER PRIMARY KEY CHECK (id = 1),

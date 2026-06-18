@@ -151,6 +151,19 @@ def _traj_user(decisions: list, pace: dict, current_ks: float, signal: list[dict
     )
 
 
+def get_rate_signal(db: sqlite3.Connection) -> dict:
+    """Ручной текст риторики ЦБ (override авто-фетча keypr)."""
+    row = db.execute("SELECT * FROM rate_signal WHERE id = 1").fetchone()
+    return dict(row) if row else {"text": "", "updated_at": None}
+
+
+def set_rate_signal(db: sqlite3.Connection, text: str) -> dict:
+    upsert(db, "rate_signal", dict(
+        id=1, text=(text or "").strip()[:6000],
+        updated_at=datetime.now().isoformat(timespec="seconds")), pk="id")
+    return get_rate_signal(db)
+
+
 def get_rate_trajectory(db: sqlite3.Connection) -> dict | None:
     row = db.execute("SELECT * FROM rate_trajectory WHERE id = 1").fetchone()
     if not row:
@@ -194,7 +207,14 @@ def assess_rate_trajectory(db: sqlite3.Connection) -> dict:
             signal_read="", source="пейс (без Opus)", decisions=decisions[-6:],
             model="")
 
-    signal = cbr.fetch_rate_signal()
+    # риторика: ручной ввод (override) приоритетнее авто-фетча keypr
+    manual = get_rate_signal(db)
+    if manual.get("text", "").strip():
+        signal = [{"url": "(вручную)", "title": "", "text": manual["text"].strip()}]
+        sig_src = "вручную"
+    else:
+        signal = cbr.fetch_rate_signal()
+        sig_src = "авто keypr" if signal else "без риторики"
     data, err = llm.call_json(SYSTEM_TRAJ, _traj_user(decisions, pace, current_ks, signal),
                               max_tokens=1100)
     if err or not data:
@@ -215,7 +235,7 @@ def assess_rate_trajectory(db: sqlite3.Connection) -> dict:
     return _store_trajectory(
         db, grade=grade, terminal_ks=tks, avg_step_pp=pace["avg_step_pp"],
         confidence=data.get("confidence", ""), rationale=data.get("rationale", ""),
-        signal_read=data.get("signal_read", ""), source="Opus + риторика",
+        signal_read=data.get("signal_read", ""), source=f"Opus + риторика ({sig_src})",
         decisions=decisions[-6:], model=os.environ.get("ANTHROPIC_MODEL", llm.DEFAULT_MODEL))
 
 

@@ -212,6 +212,7 @@ def get_regime():
         r["context"] = llm_macro.get_context(db)
         r["shock"] = llm_macro.get_shock(db)
         r["rate_trajectory"] = llm_macro.get_rate_trajectory(db)
+        r["rate_signal"] = llm_macro.get_rate_signal(db)
     return r
 
 
@@ -237,6 +238,18 @@ def regime_rate_trajectory():
     from app.core import llm_macro
     with get_db() as db:
         return llm_macro.assess_rate_trajectory(db)
+
+
+class RateSignalIn(BaseModel):
+    text: str
+
+
+@router.put("/regime/rate_signal")
+def put_rate_signal(body: RateSignalIn):
+    """Ручной ввод риторики ЦБ (override авто-фетча keypr). Пусто → снова авто."""
+    from app.core import llm_macro
+    with get_db() as db:
+        return llm_macro.set_rate_signal(db, body.text)
 
 
 class MacroContextIn(BaseModel):

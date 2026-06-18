@@ -13,6 +13,10 @@
   .tcalc input.num2::-webkit-outer-spin-button, .tcalc input.num2::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
   .tcalc #tc-out { font-family: var(--mono); color: var(--ink); font-weight: 600; }
   .tcalc .tcalc-note { flex-basis: 100%; font-size: 12.5px; color: var(--faint); margin-top: 2px; }
+  textarea#rate-signal { width: 100%; background: transparent; color: var(--ink);
+    border: 1px solid var(--hair); border-radius: 0; padding: 9px; font-family: var(--font-sans);
+    font-size: 13.5px; line-height: 1.5; resize: vertical; }
+  textarea#rate-signal:focus { outline: 0; border-color: var(--ink); }
 </style>
 <h1>Настройки и персональная калибровка</h1>
 <p class="sub">Доходность реальна только над ОЩУЩАЕМОЙ инфляцией. Таргет и режим задают порог троичного сигнала.
@@ -41,6 +45,19 @@
 </div>
 
 <button id="save">Сохранить</button> <span id="saved" class="muted" style="margin-left:10px"></span>
+
+<div class="panel" style="margin-top:18px"><h2>Сигнал ЦБ по ставке — ручной ввод (override авто-фетча)</h2>
+  <p class="sub">Opus градирует траекторию КС по пейсу решений + риторике. Авто-фетч тянет
+    заявление с <code>cbr.ru/press/keypr</code>. Если авто сломался или хочешь задать конкретный
+    текст — вставь сюда (пусто → снова авто). Нужен ключ Opus, иначе градация идёт по числовому пейсу.</p>
+  <div id="rate-status" class="sub" style="margin-bottom:8px"></div>
+  <textarea id="rate-signal" rows="6" placeholder="Вставь текст заявления ЦБ по ключевой ставке…"></textarea>
+  <div style="margin-top:8px">
+    <button id="rate-save">Сохранить сигнал</button>
+    <button class="ghost" id="rate-run2">↻ Прогнать траекторию КС</button>
+    <span id="rate-saved" class="muted" style="margin-left:10px"></span>
+  </div>
+</div>
 
 <div class="panel" style="margin-top:18px"><h2>Фундаментал уровня 2 — T-Invest API</h2>
   <p class="sub">Обновить ROE, прибыль, payout, капитал по эмитентам из T-Invest
@@ -99,6 +116,33 @@ document.getElementById("tc-apply").addEventListener("click", () => {
   document.getElementById("hurdle").value = h.toFixed(1);
   document.getElementById("save").click();
 });
+
+// ── ручной сигнал ЦБ (override) + прогон траектории КС ──
+async function loadRate() {
+  try {
+    const r = await getJSON("/regime");
+    document.getElementById("rate-signal").value = (r.rate_signal && r.rate_signal.text) || "";
+    const t = r.rate_trajectory;
+    document.getElementById("rate-status").textContent = t && t.grade
+      ? `Текущая градация: ${t.grade} · терминал ${t.terminal_ks != null ? pct(t.terminal_ks) : "—"} · ${t.source || ""}`
+      : "Градация ещё не сгенерирована — нажми «Прогнать траекторию КС».";
+  } catch (e) { console.warn(e); }
+}
+document.getElementById("rate-save").addEventListener("click", async () => {
+  await sendJSON("/regime/rate_signal", "PUT", { text: document.getElementById("rate-signal").value });
+  document.getElementById("rate-saved").textContent = "Сохранено ✓ (применится при следующем прогоне)";
+});
+document.getElementById("rate-run2").addEventListener("click", async (e) => {
+  e.target.disabled = true;
+  document.getElementById("rate-saved").textContent = "прогоняю…";
+  // сначала сохраним текущий текст, чтобы прогон взял его
+  await sendJSON("/regime/rate_signal", "PUT", { text: document.getElementById("rate-signal").value });
+  try { await sendJSON("/regime/rate_trajectory", "POST", {}); } catch (err) {}
+  await loadRate();
+  document.getElementById("rate-saved").textContent = "Готово ✓ (скринер пересчитается)";
+  e.target.disabled = false;
+});
+loadRate();
 
 document.getElementById("refresh-funds").addEventListener("click", async (e) => {
   const st = document.getElementById("funds-status");

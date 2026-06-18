@@ -97,6 +97,22 @@ PROVEN_ROIC = {
     "PRMD": 2, "OZPH": 2, "GAZP": 2, "OZON": 0,
 }
 
+# валютный профиль (#11): EXPORTER (выручка в валюте — хедж девальвации) | DOMESTIC | MIXED.
+# Из базы знаний: X5/Сбер/Т/Озон/MDMG = DOMESTIC. Сырьевики/рентье = EXPORTER (по is_resource).
+CURRENCY = {
+    "X5": "DOMESTIC", "SBER": "DOMESTIC", "T": "DOMESTIC", "OZON": "DOMESTIC", "MDMG": "DOMESTIC",
+    "YDEX": "DOMESTIC", "MTSS": "DOMESTIC", "BSPB": "DOMESTIC", "SVCB": "DOMESTIC", "HEAD": "DOMESTIC",
+    "PRMD": "DOMESTIC", "OZPH": "DOMESTIC", "MOEX": "DOMESTIC", "VTBR": "DOMESTIC",
+}
+
+
+def _currency_profile(secid: str, finrow: dict) -> str:
+    if secid in CURRENCY:
+        return CURRENCY[secid]
+    if finrow.get("is_resource") or finrow.get("is_rentier"):
+        return "EXPORTER"
+    return "MIXED"
+
 
 def seed_static() -> dict:
     """Залить статические данные модели в БД (без обращения к сети)."""
@@ -113,6 +129,7 @@ def seed_static() -> dict:
             fin.update(FIN.get(secid, {}))
             if secid in PROVEN_ROIC:
                 fin["proven_roic_years"] = PROVEN_ROIC[secid]
+            fin["currency_profile"] = _currency_profile(secid, FIN.get(secid, {}))
             upsert(db, "financials", fin, pk="secid")
             # стартовая дивдоходность из Excel (перезапишется живой из MOEX)
             upsert(db, "market_data", dict(

@@ -95,13 +95,20 @@ def macro_fragility(db: sqlite3.Connection) -> dict:
             "deval_score": deval, "shock_pct": shock_pct}
 
 
-def macro_hurdle_delta(F: float, qmark: str) -> float:
+# валютный множитель штрафа хрупкости (#10/#14): экспортёру девальвация — В ПЛЮС
+# (выручка в валюте), поэтому в хрупком макро его штрафуем меньше; внутреннее имя — полный
+# штраф (в RISK режут первым). Спит при здоровом макро (F≤F0 → бонус общий).
+CURRENCY_FRAGILITY = {"EXPORTER": 0.3, "MIXED": 0.7, "DOMESTIC": 1.0}
+
+
+def macro_hurdle_delta(F: float, qmark: str, currency_profile: str = "MIXED") -> float:
     """Поправка к реальному hurdle: здорово → ниже (агрессивнее), хрупко → выше.
-    Штраф хрупкости меньше для качества (барбелл: качество добираем и в напряжении)."""
+    Штраф хрупкости меньше для качества (барбелл) И для экспортёров (хедж девальвации)."""
     if F <= MACRO_F0:
         return -MACRO_BONUS * (MACRO_F0 - F) / MACRO_F0
     q = 0.4 if qmark in ("PROVEN_QUALITY", "PROSPECTIVE_QUALITY") else 1.0
-    return MACRO_PENALTY * (F - MACRO_F0) / (1.0 - MACRO_F0) * q
+    cur = CURRENCY_FRAGILITY.get(currency_profile, 0.7)
+    return MACRO_PENALTY * (F - MACRO_F0) / (1.0 - MACRO_F0) * q * cur
 
 
 # ── полный прогон одного эмитента ────────────────────────────────────────────
@@ -111,7 +118,7 @@ def evaluate_issuer(db: sqlite3.Connection, secid: str, macro_frag: dict | None 
                   m.price, m.cap, m.div_yield, m.div_typical, m.div_spike, m.fetched_at,
                   f.g_base, f.compression, f.roe, f.payout, f.equity,
                   f.roic, f.wacc, f.body_trend, f.revenue_growth, f.etype,
-                  f.is_rentier, f.is_resource, f.net_profit, f.source AS fin_source,
+                  f.is_rentier, f.is_resource, f.net_profit, f.source AS fin_source, f.currency_profile,
                   s.moat, s.disruption, s.tam, s.regulation, s.demo, s.gosnaves,
                   s.mult_seed, s.note AS struct_note, s.monetization_proven, s.is_platform,
                   f.needs_review
@@ -164,7 +171,8 @@ def evaluate_issuer(db: sqlite3.Connection, secid: str, macro_frag: dict | None 
     # осторожность ему уступает (до шторма строже, в шторм — добор качества).
     if macro_frag is None:
         macro_frag = macro_fragility(db)
-    macro_delta = macro_hurdle_delta(macro_frag["F"], qmark)
+    currency_profile = r["currency_profile"] or "MIXED"
+    macro_delta = macro_hurdle_delta(macro_frag["F"], qmark, currency_profile)
     hurdle_eff = settings["hurdle"] + macro_delta
 
     # требуемая доходность r (для теста достоверности зоны)
@@ -286,6 +294,11 @@ def evaluate_issuer(db: sqlite3.Connection, secid: str, macro_frag: dict | None 
             f"Макро-поправка hurdle {macro_delta*100:+.1f}пп "
             f"({'осторожнее' if macro_delta > 0 else 'агрессивнее'}): "
             f"ФНБ деваль {macro_frag['deval_score']}/6, риск ШОКа {macro_frag['shock_pct']}%.")
+    if macro_frag["F"] > MACRO_F0 and currency_profile != "MIXED":
+        warnings.append(
+            "Экспортёр (выручка в валюте): девальвация в плюс — штраф макро снижен, в RISK ДЕРЖАТЬ как хедж."
+            if currency_profile == "EXPORTER" else
+            "Внутреннее имя: нет валютного хеджа — полный штраф макро, в RISK режут первым.")
     _felt = settings.get("felt_inflation") or DEFAULTS["felt_inflation"]
     _term = terminal_inflation(settings, db)
     _yrs = settings.get("forecast_years") or FORECAST_YEARS
@@ -400,6 +413,7 @@ def evaluate_issuer(db: sqlite3.Connection, secid: str, macro_frag: dict | None 
         "macro_adj": {"delta_pp": round(macro_delta * 100, 2), "fragility": round(macro_frag["F"], 2),
                       "deval_score": macro_frag["deval_score"], "shock_pct": macro_frag["shock_pct"]},
         "needs_review": bool(r["needs_review"]),
+        "currency_profile": currency_profile,
         "real_return": eff_real,
         "classification": classification,
         "mature": mature,

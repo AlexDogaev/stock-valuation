@@ -264,6 +264,18 @@ def put_rate_signal(body: RateSignalIn):
         return llm_macro.set_rate_signal(db, body.text)
 
 
+class UralsPointIn(BaseModel):
+    month: str   # YYYY-MM
+    urals: float
+
+
+@router.put("/regime/urals_point")
+def put_urals_point(body: UralsPointIn):
+    """Помесячная точка Urals для сглаживания режима (#9): MA фильтрует overshoot."""
+    from app.data.minfin import add_urals_point
+    return add_urals_point(body.month, body.urals)
+
+
 class MacroContextIn(BaseModel):
     context_md: str
     source: str | None = None

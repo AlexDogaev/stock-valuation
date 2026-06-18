@@ -102,14 +102,18 @@ SHOCK_SCENARIOS = [
     "Глобальная рецессия / risk-off на развивающихся рынках",
 ]
 
-SYSTEM_SHOCK = """Ты — макро-риск-аналитик по РФ. Оцениваешь ВЕРОЯТНОСТЬ рыночного ШОКА
-(глубокая просадка рынка акций РФ, порядка −27%+ от максимума) в заданном горизонте по списку
-сценариев. Это ЧЕСТНО СУБЪЕКТИВНАЯ экспертная оценка, не калиброванная/рыночная вероятность.
-Для КАЖДОГО сценария дай вероятность 0-100%, что ИМЕННО он вызовет такой шок в горизонте, с
-краткой аргументацией от текущего контекста. Затем дай АГРЕГИРОВАННУЮ вероятность хотя бы одного
-шока, УЧТЯ корреляцию сценариев (война↔нефть↔санкции связаны — НЕ складывай наивно).
+SYSTEM_SHOCK = """Ты — макро-риск-аналитик по РФ. Оцениваешь форвардный РИСК рыночного ШОКА
+(глубокая просадка рынка акций РФ, −27%+ от максимума). ЧЕСТНО СУБЪЕКТИВНАЯ оценка, не рыночная.
+Для КАЖДОГО сценария дай:
+- prob_pct (0-100): вероятность, что ИМЕННО он вызовет шок в горизонте;
+- severity_pct (0-100): ЕСЛИ реализуется — ожидаемая глубина просадки IMOEX. ВАЖНО: падение нефти
+  бьёт по РУБЛЮ/бюджету, а не напрямую по IMOEX → severity ниже; война/банковский кризис → выше;
+- factor: общий драйвер — "risk-off" | "геополитика" | "оба" | "идиосинкр.";
+- rationale (1 фраза).
+Затем АГРЕГИРОВАННАЯ вероятность хотя бы одного шока, УЧТЯ корреляцию ЧЕРЕЗ ОБЩИЕ ДРАЙВЕРЫ
+(война↔нефть↔санкции↔risk-off кластеризуются — НЕ складывай наивно, дисконтируй за корреляцию).
 Верни СТРОГО JSON без обрамления:
-{"horizon":"12 мес","aggregate_pct":int,"scenarios":[{"name":"...","prob_pct":int,"rationale":"1 фраза"}],"note":"итог 2-3 фразы"}"""
+{"horizon":"12 мес","aggregate_pct":int,"scenarios":[{"name":"...","prob_pct":int,"severity_pct":int,"factor":"...","rationale":"1 фраза"}],"note":"итог 2-3 фразы (раздели «вероятно но переживём» и «маловероятно но катастрофа»)"}"""
 
 
 def _shock_user(regime: dict, context_md: str) -> str:
@@ -264,11 +268,26 @@ def assess_shock(db: sqlite3.Connection) -> dict:
         agg = float(data.get("aggregate_pct"))
     except (TypeError, ValueError):
         agg = None
+    # компиляция (#15): наивно-независимая для прозрачности корреляции; P×severity (две оси);
+    # P за горизонт решения 3 года (годовые P накапливаются).
+    scs = data.get("scenarios", []) or []
+    ps = [float(s["prob_pct"]) / 100 for s in scs if s.get("prob_pct") is not None]
+    indep = None
+    if ps:
+        prod = 1.0
+        for p in ps:
+            prod *= (1.0 - p)
+        indep = round((1.0 - prod) * 100, 1)
+    exp_dmg = round(sum(
+        (float(s.get("prob_pct", 0)) / 100) * (float(s.get("severity_pct", 0)) / 100)
+        for s in scs) * 100, 1) if scs else None       # ожидаемая просадка IMOEX, пп
+    p3 = round((1.0 - (1.0 - agg / 100) ** 3) * 100, 1) if agg is not None else None
     upsert(db, "shock_risk", dict(
         id=1, aggregate_pct=agg,
         horizon=str(data.get("horizon", "12 мес"))[:20],
-        scenarios_json=json.dumps(data.get("scenarios", []), ensure_ascii=False)[:3000],
+        scenarios_json=json.dumps(scs, ensure_ascii=False)[:3000],
         note=str(data.get("note", ""))[:1000],
+        expected_damage_pct=exp_dmg, independent_pct=indep, p_horizon3_pct=p3,
         model=os.environ.get("ANTHROPIC_MODEL", llm.DEFAULT_MODEL),
         created_at=datetime.now().isoformat(timespec="seconds"),
     ), pk="id")

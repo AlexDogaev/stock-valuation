@@ -153,6 +153,13 @@ CREATE TABLE IF NOT EXISTS rate_trajectory (
     created_at     TEXT
 );
 
+-- помесячные точки Urals для сглаживания режима (#9): MA 1-3 мес фильтрует overshoot
+CREATE TABLE IF NOT EXISTS urals_history (
+    month       TEXT PRIMARY KEY,   -- YYYY-MM
+    urals       REAL,
+    updated_at  TEXT
+);
+
 -- ручной ввод риторики ЦБ (override авто-фетча keypr) для градации траектории
 CREATE TABLE IF NOT EXISTS rate_signal (
     id          INTEGER PRIMARY KEY CHECK (id = 1),
@@ -249,6 +256,10 @@ def init_db() -> None:
         _ensure_column(db, "user_settings", "tax_rate", "REAL DEFAULT 0.13")     # НДФЛ (посленалоговый слой)
         _ensure_column(db, "user_settings", "tax_aware", "INTEGER DEFAULT 1")    # сигнал на посленалоговой основе
         _ensure_column(db, "user_settings", "iis3", "INTEGER DEFAULT 0")         # обёртка ИИС-3
+        _ensure_column(db, "financials", "currency_profile", "TEXT DEFAULT 'MIXED'")  # EXPORTER|DOMESTIC|MIXED (#11)
+        _ensure_column(db, "shock_risk", "expected_damage_pct", "REAL")  # Σ P×severity (#15)
+        _ensure_column(db, "shock_risk", "independent_pct", "REAL")      # наивная 1−∏(1−p)
+        _ensure_column(db, "shock_risk", "p_horizon3_pct", "REAL")       # P за 3 года (горизонт решения)
         # для маркеров качества (§2-4 плана автономности)
         _ensure_column(db, "financials", "proven_roic_years", "INTEGER")  # экспертная ретроспектива
         _ensure_column(db, "financials", "needs_review", "INTEGER DEFAULT 0")  # авто-флаг пересмотра

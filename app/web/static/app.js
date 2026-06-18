@@ -170,7 +170,8 @@ async function initNwfMarker() {
 
   const liq = inp.nwf_liquid_pct, mz = inp.nwf_months_to_zero;
   const dd = inp.market_drawdown;
-  const bsign = (inp.urals != null && inp.oil_cutoff != null) ? (inp.urals - inp.oil_cutoff) : null;
+  const ueff = inp.urals_smoothed != null ? inp.urals_smoothed : inp.urals;   // #9: режим на сглаженной
+  const bsign = (ueff != null && inp.oil_cutoff != null) ? (ueff - inp.oil_cutoff) : null;
   const dp = r.deval_pressure || "low";
   const dpRu = dp === "high" ? "высокое" : dp === "elevated" ? "повышенное" : "низкое";
   const dpCls = dp === "high" ? "avoid" : dp === "elevated" ? "edge" : "buy";
@@ -180,7 +181,8 @@ async function initNwfMarker() {
            liq == null ? "" : (liq >= 3.0 ? "buy" : (liq >= 1.5 ? "edge" : "avoid"))),
     nwfRow("Месяцев до нуля", mz != null ? Math.round(mz) : "—",
            mz == null ? "" : (mz >= 24 ? "buy" : (mz >= 12 ? "edge" : "avoid"))),
-    nwfRow("Urals − отсечка", bsign != null ? `${inp.urals}−${inp.oil_cutoff} = ${bsign >= 0 ? "+" : ""}${bsign}` : "—",
+    nwfRow(`Urals − отсечка${inp.urals_source && inp.urals_source !== "спот" ? " (" + inp.urals_source + ")" : ""}`,
+           bsign != null ? `${ueff}−${inp.oil_cutoff} = ${bsign >= 0 ? "+" : ""}${bsign.toFixed(1)}` : "—",
            bsign == null ? "" : (bsign >= 0 ? "buy" : "avoid")),
     nwfRow("Просадка IMOEX", dd != null ? (dd * 100).toFixed(0) + "%" : "—",
            dd == null ? "" : (dd >= 0.27 ? "avoid" : (dd >= 0.10 ? "edge" : "buy"))),
@@ -255,18 +257,23 @@ function renderShock(r) {
     const when = (s.created_at || "").replace("T", " ");
     const scen = (s.scenarios || []).map(x => {
       const pp = Math.round(x.prob_pct || 0);
-      return `<div class="nwf-row"><span class="nwf-k">${glossarize(x.name || "")}</span>
-          <span class="nwf-v ${shockCls(pp)}"><span class="dot"></span>${pp}%</span></div>
+      const sev = x.severity_pct != null ? Math.round(x.severity_pct) : null;
+      return `<div class="nwf-row"><span class="nwf-k">${glossarize(x.name || "")}${x.factor ? ` <span class="muted">· ${x.factor}</span>` : ""}</span>
+          <span class="nwf-v ${shockCls(pp)}"><span class="dot"></span>${pp}%${sev != null ? ` · урон ${sev}%` : ""}</span></div>
         ${x.rationale ? `<div class="shock-rat">${glossarize(x.rationale)}</div>` : ""}`;
     }).join("");
+    const mx = (v) => v != null ? Math.round(v) + "%" : "—";
+    const metrics = `<div class="nwf-alloc">P(хотя бы один): <b>${p}%</b> с корреляцией vs ${mx(s.independent_pct)} наивно ·
+        ожид. урон IMOEX <b>${mx(s.expected_damage_pct)}</b> (P×severity) · за 3 года <b>${mx(s.p_horizon3_pct)}</b></div>`;
     host.innerHTML = `<button class="nwf-btn nwf-${cls}" id="shock-btn" title="Форвардная вероятность ШОКА (оценка Opus)">
         <span class="dot"></span> ⚡ ШОК · ${p}%</button>
       <div class="nwf-pop" id="shock-pop" hidden>
         <div class="nwf-pop-head nwf-${cls}">Риск ШОКа · ${p}% <span class="muted" style="font-weight:400">/ ${s.horizon || "12 мес"}</span>
           <a href="#" id="shock-analyze" title="прогнать заново" style="float:right;font-weight:400">↻</a></div>
         <div class="nwf-rows">${scen}</div>
+        ${metrics}
         <p class="nwf-note">${glossarize(s.note || "")}</p>
-        <p class="shock-disc">Субъективная оценка Opus по сценариям (не калиброванная вероятность), агрегат с учётом корреляции. Форвардный риск ≠ текущий ШОК-режим.</p>
+        <p class="shock-disc">Субъективная оценка Opus (не калиброванная), агрегат с дисконтом за корреляцию через общие драйверы. Две оси: P (вероятность) и урон (severity) — «вероятно но переживём» (нефть) ≠ «маловероятно но катастрофа» (война). Форвардный риск ≠ текущий ШОК-режим.</p>
       </div>`;
   }
   const btn = document.getElementById("shock-btn");

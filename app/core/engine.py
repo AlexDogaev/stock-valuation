@@ -15,11 +15,18 @@ from app.core import valuation, structural, classify, rate, quality_markers, dec
 from app.data.db import get_db, get_settings, get_macro, roic_years
 
 
-# ── дефлятор реальной доходности = ОЩУЩАЕМАЯ инфляция (вводится вручную) ──────
+# ── дефлятор = ощущаемая инфляция с учётом траектории снижения КС за горизонт ──
 def active_deflator_value(settings: dict) -> float:
-    """Дефлятор = ощущаемая инфляция из настроек (заменила пресеты тактич./стратег.)."""
-    fi = settings.get("felt_inflation")
-    return fi if fi is not None else DEFAULTS["felt_inflation"]
+    """Эффективный дефлятор за горизонт: глайд от ощущаемой (год 1) к терминальной.
+
+    Геом. среднее по траектории (см. valuation.horizon_deflator). Горизонт 1 год
+    или терминал = текущей → плоско = ощущаемая.
+    """
+    felt = settings.get("felt_inflation")
+    felt = felt if felt is not None else DEFAULTS["felt_inflation"]
+    terminal = settings.get("inflation_terminal")
+    years = settings.get("forecast_years") or FORECAST_YEARS
+    return valuation.horizon_deflator(felt, terminal, years)
 
 
 # ── структурный множитель: детальные баллы или seed ──────────────────────────
@@ -250,6 +257,13 @@ def evaluate_issuer(db: sqlite3.Connection, secid: str, macro_frag: dict | None 
             f"Макро-поправка hurdle {macro_delta*100:+.1f}пп "
             f"({'осторожнее' if macro_delta > 0 else 'агрессивнее'}): "
             f"ФНБ деваль {macro_frag['deval_score']}/6, риск ШОКа {macro_frag['shock_pct']}%.")
+    _felt = settings.get("felt_inflation") or DEFAULTS["felt_inflation"]
+    _term = settings.get("inflation_terminal")
+    _yrs = settings.get("forecast_years") or FORECAST_YEARS
+    if _term is not None and _yrs > 1 and abs(_term - _felt) > 0.001:
+        warnings.append(
+            f"Дефлятор {deflator*100:.1f}% — среднее по траектории за {_yrs}г "
+            f"(инфляция {_felt*100:.1f}%→{_term*100:.1f}% при снижении КС), не плоские {_felt*100:.1f}%.")
 
     # качественный гейт (owner-rule): «обычное» качество НЕ может быть ПОКУПАЙ.
     # Защита от value-trap и завышенного сигнала (фантомные/разовые дивы, дешёвые

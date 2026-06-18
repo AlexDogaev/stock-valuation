@@ -126,6 +126,9 @@ async function initHeaderControls() {
     if (feltInp) feltInp.value = (s.felt_inflation * 100).toFixed(1);
     if (targetInp) targetInp.value = (s.hurdle * 100).toFixed(1);
     if (horizonSel) horizonSel.value = String(s.forecast_years);
+    const eff = document.getElementById("g-felt-eff");   // эфф. дефлятор за горизонт (траектория КС)
+    if (eff) eff.textContent = (s.deflator_active != null && Math.abs(s.deflator_active - s.felt_inflation) > 0.001)
+      ? " →" + (s.deflator_active * 100).toFixed(1) + "%" : "";
   } catch (e) { console.warn(e); }
   regimeSel.addEventListener("change", async () => {
     await sendJSON("/settings", "PUT", { regime: regimeSel.value });

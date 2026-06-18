@@ -38,6 +38,25 @@ def fisher_nominal(inflation: float, real: float) -> float:
     return (1.0 + inflation) * (1.0 + real) - 1.0
 
 
+def horizon_deflator(felt: float, terminal: float | None, years: int | None) -> float:
+    """Эффективный дефлятор за горизонт с учётом траектории снижения инфляции (КС).
+
+    Инфляция глайдит линейно от текущей ощущаемой (год 1 = felt) к терминальной
+    (год N = terminal, куда сойдёт при нормализации КС). Дефлятор = геометрическое
+    среднее по годам — именно оно корректно дисконтирует N-летнюю номинальную
+    доходность: (1+real)^N = (1+nom)^N / Π(1+infl_t).
+
+    Горизонт ≤ 1 года или терминал не задан → плоско = felt (траектории нет).
+    """
+    if terminal is None or years is None or years <= 1:
+        return felt
+    prod = 1.0
+    for t in range(years):
+        infl = felt + (terminal - felt) * (t / (years - 1))
+        prod *= 1.0 + infl
+    return prod ** (1.0 / years) - 1.0
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Justified-мультипликаторы (зрелый режим)
 # ─────────────────────────────────────────────────────────────────────────────

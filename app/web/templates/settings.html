@@ -20,7 +20,8 @@
 
 <div class="panel"><h2>Таргет и инфляция</h2><div class="grid">
   <div>
-    <label>Ощущаемая инфляция (дефлятор реальной доходности), %</label><input type="number" step="0.1" id="felt_inflation">
+    <label>Ощущаемая инфляция сейчас (год 1), %</label><input type="number" step="0.1" id="felt_inflation">
+    <label>Терминальная инфляция (куда сойдёт при снижении КС), %</label><input type="number" step="0.1" id="inflation_terminal">
     <label>Таргет — желаемая реальная доходность над инфляцией, %</label><input type="number" step="0.5" id="hurdle">
   </div>
   <div>
@@ -28,6 +29,7 @@
     <label>Премия за риск эквити (для r, доля)</label><input type="number" step="0.01" id="risk_premium">
   </div>
 </div>
+<div id="defl-eff" class="sub" style="margin-top:10px"></div>
   <div class="tcalc">
     <span class="tcalc-t">Калькулятор таргета</span>
     цель портфеля <input class="num2" type="number" step="0.5" id="tc-port">% ÷ доля атаки
@@ -50,12 +52,18 @@
 {% endblock %}
 {% block scripts %}
 <script>
-const PCT = ["felt_inflation", "hurdle"];   // хранятся долей, в полях — проценты
+const PCT = ["felt_inflation", "inflation_terminal", "hurdle"];   // хранятся долей, в полях — проценты
 const FRAC = ["buffer", "risk_premium"];
 async function load() {
   const s = await getJSON("/settings");
   PCT.forEach(k => document.getElementById(k).value = (s[k] * 100).toFixed(1));
   FRAC.forEach(k => document.getElementById(k).value = s[k]);
+  const eff = document.getElementById("defl-eff");
+  const yrs = s.forecast_years, flat = Math.abs(s.deflator_active - s.felt_inflation) < 0.001;
+  eff.textContent = flat
+    ? `Эффективный дефлятор за ${yrs} г: ${pct(s.deflator_active)} (плоско — горизонт 1 год или терминал = текущей)`
+    : `Эффективный дефлятор за ${yrs} г: ${pct(s.deflator_active)} `
+      + `(траектория ${pct(s.felt_inflation)} → ${pct(s.inflation_terminal)}, геом. среднее)`;
 }
 document.getElementById("save").addEventListener("click", async () => {
   const body = {};

@@ -7,8 +7,8 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Golos+Text:wght@400;500;600&family=JetBrains+Mono:wght@400;500&family=Lora:wght@500;600&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/static/app.css?v=20260618-infl1">
-  <script src="/static/app.js?v=20260618-infl1"></script>
+  <link rel="stylesheet" href="/static/app.css?v=20260618-traj1">
+  <script src="/static/app.js?v=20260618-traj1"></script>
   {% block head %}{% endblock %}
 </head>
 <body>
@@ -29,7 +29,7 @@
       </select>
     </span>
     <span class="ctl">Инфляция
-      <input type="number" id="g-felt" class="num" step="0.1" inputmode="decimal" title="Ощущаемая инфляция (вводится вручную) — дефлятор реальной доходности">%
+      <input type="number" id="g-felt" class="num" step="0.1" inputmode="decimal" title="Ощущаемая инфляция сейчас (год 1) — дефлятор реальной доходности">%<span id="g-felt-eff" class="muted" title="Эффективный дефлятор за горизонт с учётом снижения КС (геом. среднее траектории)"></span>
     </span>
     <span class="ctl">Таргет
       <input type="number" id="g-target" class="num" step="0.5" inputmode="decimal" title="Желаемая реальная доходность над ощущаемой инфляцией">%

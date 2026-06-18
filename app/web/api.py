@@ -40,6 +40,7 @@ class Settings(BaseModel):
     regime: str | None = None
     risk_premium: float | None = None
     felt_inflation: float | None = None
+    inflation_terminal: float | None = None
     forecast_years: int | None = None
 
 

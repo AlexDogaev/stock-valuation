@@ -1,27 +1,18 @@
 {% extends "base.html" %}
 {% block content %}
 <h1>Настройки и персональная калибровка</h1>
-<p class="sub">Доходность реальна только над ЛИЧНОЙ инфляцией. hurdle и режим задают порог троичного сигнала.</p>
+<p class="sub">Доходность реальна только над ОЩУЩАЕМОЙ инфляцией. Таргет и режим задают порог троичного сигнала.
+  Инфляцию и таргет можно править прямо в шапке.</p>
 
-<div class="panel"><h2>Hurdle и риск</h2><div class="grid">
+<div class="panel"><h2>Таргет и инфляция</h2><div class="grid">
   <div>
-    <label>Hurdle (база атаки, реальная над инфляцией)</label><input type="number" step="0.005" id="hurdle">
-    <label>Буфер маржи безопасности (±)</label><input type="number" step="0.005" id="buffer">
+    <label>Ощущаемая инфляция (дефлятор реальной доходности), %</label><input type="number" step="0.1" id="felt_inflation">
+    <label>Таргет — желаемая реальная доходность над инфляцией, %</label><input type="number" step="0.5" id="hurdle">
   </div>
   <div>
-    <label>Премия за риск эквити (для r)</label><input type="number" step="0.01" id="risk_premium">
-    <label>Пресет дефлятора</label>
-    <select id="deflator_preset"><option value="тактический">тактический (сейчас)</option>
-      <option value="стратегический">стратегический (20 лет)</option></select>
+    <label>Буфер маржи безопасности (±, доля)</label><input type="number" step="0.005" id="buffer">
+    <label>Премия за риск эквити (для r, доля)</label><input type="number" step="0.01" id="risk_premium">
   </div>
-</div></div>
-
-<div class="panel"><h2>Дефлятор инфляции</h2><div class="grid">
-  <div>
-    <label>Росстат текущий</label><input type="number" step="0.001" id="rosstat_current">
-    <label>Росстат сглаженный (по циклу)</label><input type="number" step="0.001" id="rosstat_smoothed">
-  </div>
-  <div id="defl-out"></div>
 </div></div>
 
 <button id="save">Сохранить</button> <span id="saved" class="muted" style="margin-left:10px"></span>
@@ -36,23 +27,17 @@
 {% endblock %}
 {% block scripts %}
 <script>
-const F = ["hurdle","buffer","risk_premium","deflator_preset","rosstat_current","rosstat_smoothed"];
+const PCT = ["felt_inflation", "hurdle"];   // хранятся долей, в полях — проценты
+const FRAC = ["buffer", "risk_premium"];
 async function load() {
   const s = await getJSON("/settings");
-  F.forEach(k => document.getElementById(k).value = s[k]);
-  document.getElementById("defl-out").innerHTML = `
-    <div class="kv"><span class="k">Личная инфляция (корзина)</span><span class="v">${pct(s.personal_inflation)}</span></div>
-    <div class="kv"><span class="k">Премия корзины (личная−Росстат)</span><span class="v">${pct(s.basket_premium)}</span></div>
-    <div class="kv"><span class="k">Дефлятор тактический</span><span class="v">${pct(s.deflator_tactical)}</span></div>
-    <div class="kv"><span class="k">Дефлятор стратегический</span><span class="v">${pct(s.deflator_strategic)}</span></div>
-    <div class="kv"><span class="k">Активный (по пресету)</span><span class="v">${pct(s.deflator_active)}</span></div>`;
+  PCT.forEach(k => document.getElementById(k).value = (s[k] * 100).toFixed(1));
+  FRAC.forEach(k => document.getElementById(k).value = s[k]);
 }
 document.getElementById("save").addEventListener("click", async () => {
   const body = {};
-  F.forEach(k => {
-    const el = document.getElementById(k);
-    body[k] = el.type === "number" ? parseFloat(el.value) : el.value;
-  });
+  PCT.forEach(k => { const v = parseFloat(document.getElementById(k).value); if (!isNaN(v)) body[k] = v / 100; });
+  FRAC.forEach(k => { const v = parseFloat(document.getElementById(k).value); if (!isNaN(v)) body[k] = v; });
   await sendJSON("/settings", "PUT", body);
   document.getElementById("saved").textContent = "Сохранено ✓ (скринер пересчитается)";
   load();

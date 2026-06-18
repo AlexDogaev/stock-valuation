@@ -222,6 +222,7 @@ def init_db() -> None:
         _ensure_column(db, "market_data", "div_typical", "REAL")
         _ensure_column(db, "market_data", "div_spike", "INTEGER DEFAULT 0")
         _ensure_column(db, "user_settings", "forecast_years", "INTEGER DEFAULT 3")
+        _ensure_column(db, "user_settings", "felt_inflation", "REAL DEFAULT 0.14")  # ощущаемая инфляция (дефлятор)
         # для маркеров качества (§2-4 плана автономности)
         _ensure_column(db, "financials", "proven_roic_years", "INTEGER")  # экспертная ретроспектива
         _ensure_column(db, "financials", "needs_review", "INTEGER DEFAULT 0")  # авто-флаг пересмотра

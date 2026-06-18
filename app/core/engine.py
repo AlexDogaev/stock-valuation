@@ -7,31 +7,19 @@
 """
 from __future__ import annotations
 
-import json
 import sqlite3
 from typing import Any
 
-from app.config import FORECAST_YEARS
-from app.core import valuation, structural, classify, inflation, rate, quality_markers, decision
+from app.config import FORECAST_YEARS, DEFAULTS
+from app.core import valuation, structural, classify, rate, quality_markers, decision
 from app.data.db import get_db, get_settings, get_macro, roic_years
 
 
-# ── дефлятор из настроек пользователя ────────────────────────────────────────
-def build_deflator(settings: dict) -> inflation.Deflator:
-    basket = None
-    if settings.get("basket_json"):
-        raw = json.loads(settings["basket_json"])
-        basket = [inflation.Category(**c) for c in raw]
-    return inflation.compute_deflator(
-        basket=basket,
-        rosstat_current=settings["rosstat_current"],
-        rosstat_smoothed=settings["rosstat_smoothed"],
-    )
-
-
-def active_deflator_value(settings: dict) -> tuple[float, inflation.Deflator]:
-    d = build_deflator(settings)
-    return inflation.active_deflator(d, settings["deflator_preset"]), d
+# ── дефлятор реальной доходности = ОЩУЩАЕМАЯ инфляция (вводится вручную) ──────
+def active_deflator_value(settings: dict) -> float:
+    """Дефлятор = ощущаемая инфляция из настроек (заменила пресеты тактич./стратег.)."""
+    fi = settings.get("felt_inflation")
+    return fi if fi is not None else DEFAULTS["felt_inflation"]
 
 
 # ── структурный множитель: детальные баллы или seed ──────────────────────────
@@ -117,7 +105,7 @@ def evaluate_issuer(db: sqlite3.Connection, secid: str, macro_frag: dict | None 
 
     settings = get_settings(db)
     macro = get_macro(db)
-    deflator, defl_obj = active_deflator_value(settings)
+    deflator = active_deflator_value(settings)
 
     struct_res, mult, detailed = structural_for(r)
 

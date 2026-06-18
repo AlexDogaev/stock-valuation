@@ -7,8 +7,8 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Golos+Text:wght@400;500;600&family=JetBrains+Mono:wght@400;500&family=Lora:wght@500;600&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/static/app.css?v=20260617-min9">
-  <script src="/static/app.js?v=20260617-min9"></script>
+  <link rel="stylesheet" href="/static/app.css?v=20260618-infl1">
+  <script src="/static/app.js?v=20260618-infl1"></script>
   {% block head %}{% endblock %}
 </head>
 <body>
@@ -28,12 +28,11 @@
         <option value="ШОК">ШОК</option>
       </select>
     </span>
-    <span class="ctl">Дефлятор
-      <select id="g-deflator">
-        <option value="тактический">тактический</option>
-        <option value="стратегический">стратегический</option>
-      </select>
-      <span id="g-deflator-val" class="muted"></span>
+    <span class="ctl">Инфляция
+      <input type="number" id="g-felt" class="num" step="0.1" inputmode="decimal" title="Ощущаемая инфляция (вводится вручную) — дефлятор реальной доходности">%
+    </span>
+    <span class="ctl">Таргет
+      <input type="number" id="g-target" class="num" step="0.5" inputmode="decimal" title="Желаемая реальная доходность над ощущаемой инфляцией">%
     </span>
     <span class="ctl">Горизонт
       <select id="g-horizon">

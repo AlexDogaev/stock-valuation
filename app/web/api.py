@@ -39,9 +39,7 @@ class Settings(BaseModel):
     buffer: float | None = None
     regime: str | None = None
     risk_premium: float | None = None
-    deflator_preset: str | None = None
-    rosstat_current: float | None = None
-    rosstat_smoothed: float | None = None
+    felt_inflation: float | None = None
     forecast_years: int | None = None
 
 
@@ -49,12 +47,7 @@ class Settings(BaseModel):
 def read_settings():
     with get_db() as db:
         s = get_settings(db)
-        deflator, d = engine.active_deflator_value(s)
-    s["deflator_active"] = deflator
-    s["deflator_tactical"] = d.tactical
-    s["deflator_strategic"] = d.strategic
-    s["personal_inflation"] = d.personal
-    s["basket_premium"] = d.basket_premium
+    s["deflator_active"] = engine.active_deflator_value(s)
     return s
 
 

@@ -116,25 +116,29 @@ async function initHeaderControls() {
     if (a.getAttribute("href") === location.pathname) a.classList.add("active");
   });
   const regimeSel = document.getElementById("g-regime");
-  const deflSel = document.getElementById("g-deflator");
+  const feltInp = document.getElementById("g-felt");
+  const targetInp = document.getElementById("g-target");
   const horizonSel = document.getElementById("g-horizon");
   if (!regimeSel) return;
   try {
     const s = await getJSON("/settings");
     regimeSel.value = s.regime;
-    deflSel.value = s.deflator_preset;
+    if (feltInp) feltInp.value = (s.felt_inflation * 100).toFixed(1);
+    if (targetInp) targetInp.value = (s.hurdle * 100).toFixed(1);
     if (horizonSel) horizonSel.value = String(s.forecast_years);
-    const lbl = document.getElementById("g-deflator-val");
-    if (lbl) lbl.textContent = "(" + pct(s.deflator_active) + ")";
   } catch (e) { console.warn(e); }
   regimeSel.addEventListener("change", async () => {
     await sendJSON("/settings", "PUT", { regime: regimeSel.value });
     location.reload();
   });
-  deflSel.addEventListener("change", async () => {
-    await sendJSON("/settings", "PUT", { deflator_preset: deflSel.value });
+  const saveNum = async (inp, key) => {           // поле в %, в настройки — долей
+    const v = parseFloat(inp.value);
+    if (isNaN(v)) return;
+    await sendJSON("/settings", "PUT", { [key]: v / 100 });
     location.reload();
-  });
+  };
+  if (feltInp) feltInp.addEventListener("change", () => saveNum(feltInp, "felt_inflation"));
+  if (targetInp) targetInp.addEventListener("change", () => saveNum(targetInp, "hurdle"));
   if (horizonSel) horizonSel.addEventListener("change", async () => {
     await sendJSON("/settings", "PUT", { forecast_years: parseInt(horizonSel.value) });
     location.reload();

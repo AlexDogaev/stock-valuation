@@ -20,7 +20,8 @@ router = APIRouter(prefix="/api")
 def list_issuers():
     with get_db() as db:
         rows = engine.screen_all(db)
-    return {"disclaimer": DISCLAIMER, "count": len(rows), "issuers": rows}
+        summary = engine.screen_summary(db, rows)
+    return {"disclaimer": DISCLAIMER, "count": len(rows), "issuers": rows, "summary": summary}
 
 
 @router.get("/issuers/{secid}")
@@ -42,6 +43,9 @@ class Settings(BaseModel):
     felt_inflation: float | None = None
     inflation_terminal: float | None = None
     forecast_years: int | None = None
+    tax_rate: float | None = None
+    tax_aware: int | None = None
+    iis3: int | None = None
 
 
 @router.get("/settings")
@@ -134,6 +138,12 @@ def get_portfolio():
     decomp = pf.factor_decomposition(loadings, weights=weights)
     stress = pf.stress_test(decomp)
     sector_flags = pf.sector_concentration(sectors, weights=weights)
+    try:
+        from app.data.minfin import current_regime
+        regime = current_regime().get("regime", "NORMAL")
+    except Exception:  # noqa: BLE001
+        regime = "NORMAL"
+    breaches = pf.check_limits(weights, sectors, regime=regime, loadings=loadings)
     return {
         "weights": weights,
         "sectors": sectors,
@@ -143,6 +153,8 @@ def get_portfolio():
         "factor_flags": decomp.flags,
         "sector_flags": sector_flags,
         "stress": [asdict(s) for s in stress],
+        "regime": regime,
+        "limit_breaches": [asdict(b) for b in breaches],
         "disclaimer": DISCLAIMER,
     }
 

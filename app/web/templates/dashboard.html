@@ -52,6 +52,7 @@
     <button class="ghost" id="refresh">↻ Обновить котировки MOEX</button>
   </div>
 </div>
+<div id="shortlist" class="sub" style="margin:12px 0 0;padding:10px 14px;border-left:2px solid var(--hair);line-height:1.6"></div>
 <div class="panel" style="padding:0;overflow:hidden">
   <table id="tbl">
     <thead>
@@ -182,6 +183,11 @@ async function load() {
     `${d.count} эмитентов. ${DATA.filter(x=>x.signal==="ПОКУПАЙ").length} ПОКУПАЙ · ` +
     `${DATA.filter(x=>x.signal==="ГРАНИЦА").length} ГРАНИЦА · ` +
     `${DATA.filter(x=>x.signal==="ВОЗДЕРЖИСЬ").length} ВОЗДЕРЖИСЬ`;
+  const sm = d.summary, sl = document.getElementById("shortlist");
+  if (sm && sl) {                                  // счётчик короткого списка = индикатор дороговизны
+    sl.style.borderLeftColor = sm.expensive ? "var(--edge)" : "var(--buy)";
+    sl.textContent = sm.note;
+  }
   render();
 }
 

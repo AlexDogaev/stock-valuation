@@ -39,8 +39,16 @@ async function build() {
     `<tr><td>${s.scenario}</td><td class="num">${s.quant_reaction===null?"кач.":pctSigned(s.quant_reaction)}</td>
      <td class="muted" style="text-align:left">${s.driver}</td></tr>`).join("");
   const flags = [...d.factor_flags, ...d.sector_flags].map(f => `<div class="warn">${f}</div>`).join("");
+  const kindRu = { issuer: "эмитент", sector: "сектор", factor: "фактор" };
+  const breaches = (d.limit_breaches || []).map(b =>
+    `<div class="warn">Лимит (${kindRu[b.kind] || b.kind}) «${b.key}»: ${pct(b.weight)} > ${pct(b.limit)}`
+    + `${d.regime === "RISK" ? " — порог ужесточён в режиме RISK" : ""}</div>`).join("");
+  const limitsPanel = `<div class="panel"><h2>Лимиты позиций ${d.regime === "RISK" ? "(RISK — жёстче)" : ""}</h2>`
+    + (breaches || `<p class="sub">Лимиты в норме (эмитент ≤12%, сектор ≤30%, фактор ≤0.45). Лимит не снимать даже под лучшее имя.</p>`)
+    + `</div>`;
   document.getElementById("out").innerHTML = `
     <div class="panel"><h2>Концентрация по факторам</h2>${conc}</div>
+    ${limitsPanel}
     ${flags ? `<div class="panel"><h2>Флаги концентрации</h2>${flags}</div>` : ""}
     <div class="panel"><h2>Стресс-тест</h2>
       <table><thead><tr><th>Сценарий</th><th>Реакция</th><th style="text-align:left">Главный драйвер</th></tr></thead>

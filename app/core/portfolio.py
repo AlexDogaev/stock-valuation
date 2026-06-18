@@ -134,3 +134,70 @@ def stress_test(decomp: FactorDecomposition) -> list[StressResult]:
         else:
             out.append(StressResult(name, None, driver))
     return out
+
+
+# ── Лимиты позиций (INSTRUCTION §8): эмитент / сектор / фактор, жёстче в RISK ──
+ISSUER_LIMIT = 0.12          # потолок на одного эмитента (~12%)
+RISK_TIGHTEN = 0.8           # в RISK лимиты ×0.8 (концентрацию режем в напряжении)
+
+
+@dataclass
+class LimitBreach:
+    kind: str        # issuer | sector | factor
+    key: str
+    weight: float
+    limit: float
+
+
+def check_limits(
+    weights: dict[str, float], sectors: dict[str, str], *,
+    regime: str = "NORMAL", loadings: dict[str, dict[str, float]] | None = None,
+    issuer_limit: float = ISSUER_LIMIT, sector_limit: float = 0.30,
+    factor_limit: float = CONCENTRATION_THRESHOLD,
+) -> list[LimitBreach]:
+    """Нарушения лимитов: эмитент / сектор / фактор. В RISK лимиты ужесточаются.
+    Лимит не снимать даже под лучшее имя — дисциплина важнее одной идеи (§8)."""
+    scale = RISK_TIGHTEN if regime.upper() == "RISK" else 1.0
+    il, sl, fl = issuer_limit * scale, sector_limit * scale, factor_limit * scale
+    wsum = sum(weights.values()) or 1.0
+    breaches: list[LimitBreach] = []
+    for secid, w in weights.items():
+        wn = w / wsum
+        if wn > il:
+            breaches.append(LimitBreach("issuer", secid, round(wn, 4), round(il, 4)))
+    by_sector: dict[str, float] = {}
+    for secid, w in weights.items():
+        by_sector[sectors.get(secid, "—")] = by_sector.get(sectors.get(secid, "—"), 0.0) + w / wsum
+    for s, w in by_sector.items():
+        if w > sl:
+            breaches.append(LimitBreach("sector", s, round(w, 4), round(sl, 4)))
+    if loadings:
+        decomp = factor_decomposition(loadings, weights=weights)
+        for f, v in decomp.concentration.items():
+            if v > fl:
+                breaches.append(LimitBreach("factor", f, round(v, 4), round(fl, 4)))
+    return breaches
+
+
+@dataclass
+class LiquidityFlag:
+    secid: str
+    days_to_exit: float | None
+    illiquid: bool
+    note: str
+
+
+def liquidity_flag(
+    *, secid: str, position_rub: float, adv_rub: float | None,
+    free_float: float | None = None, max_adv_share: float = 0.20, max_days: float = 10.0,
+) -> LiquidityFlag:
+    """Можно ли выйти из позиции без просадки: дни на выход при ≤max_adv_share объёма/день.
+    ADV/free-float — из MOEX (когда подключены); без них — graceful «не оценено»."""
+    if not adv_rub or adv_rub <= 0:
+        return LiquidityFlag(secid, None, False, "нет данных по среднедн. объёму (ADV) — ликвидность не оценена")
+    days = position_rub / (adv_rub * max_adv_share)
+    illiquid = days > max_days or (free_float is not None and free_float < 0.10)
+    note = f"~{days:.1f} дн на выход (≤{int(max_adv_share*100)}% ADV/день)"
+    if free_float is not None:
+        note += f", free-float {free_float:.0%}"
+    return LiquidityFlag(secid, round(days, 1), illiquid, note)

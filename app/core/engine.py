@@ -11,7 +11,7 @@ import sqlite3
 from typing import Any
 
 from app.config import FORECAST_YEARS, DEFAULTS
-from app.core import valuation, structural, classify, rate, quality_markers, decision
+from app.core import valuation, structural, classify, rate, quality_markers, decision, tax
 from app.data.db import get_db, get_settings, get_macro, roic_years
 
 
@@ -242,6 +242,19 @@ def evaluate_issuer(db: sqlite3.Connection, secid: str, macro_frag: dict | None 
 
     # прогноз на N лет (горизонт из настроек, по умолчанию 3): цена тела + доходность
     n = settings.get("forecast_years") or FORECAST_YEARS
+
+    # посленалоговый слой (§5): дивы −налог ежегодно; курсовой рост — ЛДВ освобождает при
+    # горизонте ≥3г / ИИС-3. Сигнал и сравнение с hurdle — на ПОСЛЕналоговой основе
+    # (tax_aware), иначе валовое сравнение завышает дивидендные имена против ростовых.
+    price_comp = fr.full_nominal - div_yield_signal
+    _tr = settings.get("tax_rate")
+    at = tax.after_tax(div_yield=div_yield_signal, price_component=price_comp, years=n,
+                       tax_rate=_tr if _tr is not None else DEFAULTS["tax_rate"],
+                       iis3=bool(settings.get("iis3", 0)))
+    at_real = valuation.real_return(at.after_tax_nominal, deflator)
+    tax_aware = bool(settings.get("tax_aware", 1))
+    eff_real = at_real if tax_aware else fr.real
+
     price_cagr = (1.0 + fr.g_final) * fr.compression - 1.0  # ценовой CAGR (без дивов)
     price_target = r["price"] * (1.0 + price_cagr) ** n if r["price"] else None
     forecast = {
@@ -250,8 +263,8 @@ def evaluate_issuer(db: sqlite3.Connection, secid: str, macro_frag: dict | None 
         "price_now": r["price"],
         "price_target": round(price_target, 2) if price_target else None,
         "price_upside": (1.0 + price_cagr) ** n - 1.0,            # рост котировки
-        "total_return": (1.0 + fr.full_nominal) ** n - 1.0,       # с дивидендами
-        "real_return": (1.0 + fr.real) ** n - 1.0,                # над инфляцией
+        "total_return": (1.0 + fr.full_nominal) ** n - 1.0,       # с дивидендами (валовое)
+        "real_return": (1.0 + eff_real) ** n - 1.0,               # над инфляцией, посленалогово
     }
 
     warnings = list(fr.notes) + list(struct_res.warnings)
@@ -289,10 +302,17 @@ def evaluate_issuer(db: sqlite3.Connection, secid: str, macro_frag: dict | None 
             f"Дефлятор {deflator*100:.1f}% — среднее по траектории за {_yrs}г "
             f"(инфляция {_felt*100:.1f}%→{_term*100:.1f}%{_src}), не плоские {_felt*100:.1f}%.")
 
+    if tax_aware and abs(fr.real - at_real) > 0.003:
+        warnings.append(
+            f"Посленалогово: реал {fr.real*100:.1f}%→{at_real*100:.1f}% "
+            f"({at.note}); сигнал и сравнение с таргетом — на чистой основе.")
+
+    # сигнал — троичный на ЭФФЕКТИВНОЙ (посленалоговой при tax_aware) реальной доходности
+    signal = valuation.ternary_signal(
+        eff_real, valuation.effective_hurdle(hurdle_eff, settings["regime"]), settings["buffer"])
     # качественный гейт (owner-rule): «обычное» качество НЕ может быть ПОКУПАЙ.
     # Защита от value-trap и завышенного сигнала (фантомные/разовые дивы, дешёвые
     # некачественные имена). Понижаем на одну ступень: ПОКУПАЙ → ГРАНИЦА.
-    signal = fr.signal
     if qmark == "ordinary" and signal == "ПОКУПАЙ":
         signal = "ГРАНИЦА"
         warnings.append("Сигнал понижен ПОКУПАЙ→ГРАНИЦА: «обычное» качество не даёт «покупай» "
@@ -360,6 +380,9 @@ def evaluate_issuer(db: sqlite3.Connection, secid: str, macro_frag: dict | None 
             "g_final": fr.g_final, "compression": fr.compression,
             "full_nominal": fr.full_nominal, "deflator": deflator,
             "real": fr.real, "confidence": fr.confidence,
+            "real_after_tax": at_real, "tax_aware": tax_aware,
+            "after_tax_nominal": at.after_tax_nominal, "growth_exempt": at.growth_exempt,
+            "tax_note": at.note,
         },
         "market": market,
         "forecast": forecast,
@@ -377,7 +400,7 @@ def evaluate_issuer(db: sqlite3.Connection, secid: str, macro_frag: dict | None 
         "macro_adj": {"delta_pp": round(macro_delta * 100, 2), "fragility": round(macro_frag["F"], 2),
                       "deval_score": macro_frag["deval_score"], "shock_pct": macro_frag["shock_pct"]},
         "needs_review": bool(r["needs_review"]),
-        "real_return": fr.real,
+        "real_return": eff_real,
         "classification": classification,
         "mature": mature,
         "warnings": warnings,
@@ -471,3 +494,34 @@ def screen_all(db: sqlite3.Connection) -> list[dict]:
     # сортировка по реальной доходности (лучшие сверху)
     out.sort(key=lambda x: (x["real_return"] is None, -(x["real_return"] or -99)))
     return out
+
+
+# ── счётчик короткого списка = индикатор дороговизны + логика пороха (§ короткий список) ──
+SHORTLIST_EXPENSIVE = 3  # проходящих ПОКУПАЙ меньше → рынок дорог (оценочный риск)
+
+
+def screen_summary(db: sqlite3.Connection, results: list[dict] | None = None) -> dict:
+    """Две НЕЗАВИСИМЫЕ оси: ФНБ-режим (девальв. риск) и число проходящих имён
+    (оценочный риск). Мало ПОКУПАЙ = рынок дорог; разрыв ёмкости атаки → в ПОРОХ
+    (RISK — защитный золото/фикс; NORMAL — доходный ОФЗ), НЕ в непрошедшие имена."""
+    results = results if results is not None else screen_all(db)
+    total = len(results)
+    buy = sum(1 for r in results if r.get("signal") == "ПОКУПАЙ")
+    edge = sum(1 for r in results if r.get("signal") == "ГРАНИЦА")
+    watch = sum(1 for r in results if r.get("action") in decision.WATCHLIST_ACTIONS)
+    regime = (macro_fragility(db).get("regime") or "NORMAL").upper()
+    expensive = buy < SHORTLIST_EXPENSIVE
+    powder = ("защитный порох — золото/длинный фикс (хедж девальвации)" if regime == "RISK"
+              else "доходный порох — ОФЗ/флоатер (парковка в ожидании ценности, не убежище)")
+    if expensive:
+        tail = ("Режим RISK: добавлен девальвационный риск — порох защитный."
+                if regime == "RISK"
+                else "Режим NORMAL: девальвации не грозит — спокойно-дороговатый рынок на нефти, "
+                     "не «кровь на улицах».")
+        note = (f"Проходящих ПОКУПАЙ: {buy} из {total} — мало = рынок дорог (оценочный риск). "
+                f"Разрыв ёмкости атаки → в {powder}, НЕ в непрошедшие имена (право не играть). {tail}")
+    else:
+        note = (f"Проходящих ПОКУПАЙ: {buy} из {total} — рынок предлагает ценность; "
+                f"заполнять атаку под лимитом ~12% на имя.")
+    return {"total": total, "buy_count": buy, "edge_count": edge, "watchlist_count": watch,
+            "regime": regime, "expensive": expensive, "note": note}

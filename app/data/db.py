@@ -246,6 +246,9 @@ def init_db() -> None:
         _ensure_column(db, "user_settings", "forecast_years", "INTEGER DEFAULT 3")
         _ensure_column(db, "user_settings", "felt_inflation", "REAL DEFAULT 0.14")  # ощущаемая инфляция год 1 (дефлятор)
         _ensure_column(db, "user_settings", "inflation_terminal", "REAL DEFAULT 0.08")  # терминальная инфляция (траектория КС)
+        _ensure_column(db, "user_settings", "tax_rate", "REAL DEFAULT 0.13")     # НДФЛ (посленалоговый слой)
+        _ensure_column(db, "user_settings", "tax_aware", "INTEGER DEFAULT 1")    # сигнал на посленалоговой основе
+        _ensure_column(db, "user_settings", "iis3", "INTEGER DEFAULT 0")         # обёртка ИИС-3
         # для маркеров качества (§2-4 плана автономности)
         _ensure_column(db, "financials", "proven_roic_years", "INTEGER")  # экспертная ретроспектива
         _ensure_column(db, "financials", "needs_review", "INTEGER DEFAULT 0")  # авто-флаг пересмотра

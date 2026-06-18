@@ -31,6 +31,9 @@
   <div>
     <label>Буфер маржи безопасности (±, доля)</label><input type="number" step="0.005" id="buffer">
     <label>Премия за риск эквити (для r, доля)</label><input type="number" step="0.01" id="risk_premium">
+    <label>Ставка НДФЛ, % (13 база / 15 выше порога)</label><input type="number" step="1" id="tax_rate">
+    <label style="display:block;margin-top:6px"><input type="checkbox" id="tax_aware"> сигнал и сравнение с таргетом — посленалогово</label>
+    <label style="display:block"><input type="checkbox" id="iis3"> обёртка ИИС-3 (курсовой рост освобождён; дивы облагаются)</label>
   </div>
 </div>
 <div id="defl-eff" class="sub" style="margin-top:10px"></div>
@@ -69,12 +72,14 @@
 {% endblock %}
 {% block scripts %}
 <script>
-const PCT = ["felt_inflation", "inflation_terminal", "hurdle"];   // хранятся долей, в полях — проценты
+const PCT = ["felt_inflation", "inflation_terminal", "hurdle", "tax_rate"];   // хранятся долей, в полях — проценты
 const FRAC = ["buffer", "risk_premium"];
+const CHK = ["tax_aware", "iis3"];   // 0/1
 async function load() {
   const s = await getJSON("/settings");
   PCT.forEach(k => document.getElementById(k).value = (s[k] * 100).toFixed(1));
   FRAC.forEach(k => document.getElementById(k).value = s[k]);
+  CHK.forEach(k => document.getElementById(k).checked = !!s[k]);
   const eff = document.getElementById("defl-eff");
   const yrs = s.forecast_years, flat = Math.abs(s.deflator_active - s.felt_inflation) < 0.001;
   eff.textContent = flat
@@ -86,6 +91,7 @@ document.getElementById("save").addEventListener("click", async () => {
   const body = {};
   PCT.forEach(k => { const v = parseFloat(document.getElementById(k).value); if (!isNaN(v)) body[k] = v / 100; });
   FRAC.forEach(k => { const v = parseFloat(document.getElementById(k).value); if (!isNaN(v)) body[k] = v; });
+  CHK.forEach(k => { body[k] = document.getElementById(k).checked ? 1 : 0; });
   await sendJSON("/settings", "PUT", body);
   document.getElementById("saved").textContent = "Сохранено ✓ (скринер пересчитается)";
   load();

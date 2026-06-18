@@ -226,6 +226,7 @@ def init_db() -> None:
         _ensure_column(db, "financials", "proven_roic_years", "INTEGER")  # экспертная ретроспектива
         _ensure_column(db, "financials", "needs_review", "INTEGER DEFAULT 0")  # авто-флаг пересмотра
         _ensure_column(db, "structural", "monetization_proven", "INTEGER DEFAULT 0")  # класс B
+        _ensure_column(db, "structural", "is_platform", "INTEGER DEFAULT 0")  # класс B (§3): платформенный критерий
         # ФНБ / бюджетное правило для режима (ручной ввод, §3 плана)
         _ensure_column(db, "macro", "nwf_liquid_pct", "REAL DEFAULT 2.0")       # ликвидный ФНБ, % ВВП
         _ensure_column(db, "macro", "nwf_months_to_zero", "REAL DEFAULT 24")    # мес до исчерпания

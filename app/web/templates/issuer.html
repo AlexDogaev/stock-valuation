@@ -23,6 +23,12 @@
   #card .vquality.buy { color: var(--q-green); }
   #card .vquality.edge { color: var(--q-amber); }
   #card .vflag { color: var(--avoid); font-size: 12px; letter-spacing: .04em; }
+  /* действие из матрицы качество×цена (§1) — синтез двух слоёв, главный вердикт */
+  #card .vaction { margin-top: 10px; font-size: 19px; font-weight: 600; letter-spacing: .01em; }
+  #card .vaction.buy { color: var(--buy); }
+  #card .vaction.edge { color: var(--edge); }
+  #card .vaction.avoid { color: var(--avoid); }
+  #card .vaction .vzone { color: var(--muted); font-weight: 400; font-size: 13px; }
 
   #card .vmetrics {
     display: flex; flex-wrap: wrap; margin-top: 38px;
@@ -152,6 +158,9 @@ function render(x) {
                    : (s.note || "Обоснование Opus ещё не сгенерировано — нажми «🤖 LLM-черновик» в индикаторах.");
   const qcls = x.quality_marker==='PROVEN_QUALITY' ? 'buy'
              : (x.quality_marker==='PROSPECTIVE_QUALITY' ? 'edge' : '');
+  // действие из матрицы §1: цвет — покупка/держать/мимо
+  const actCls = /докуп|покупать/.test(x.action||'') ? 'buy'
+               : ((x.action==='мимо') ? 'avoid' : 'edge');
   const priceStr = m.price!==null ? m.price.toLocaleString('ru-RU') + " ₽" : "—";
 
   // ── ПЕРВЫЙ ЭКРАН: оценка, цена, P/E, реальная доходность, апсайд, обоснование ──
@@ -165,6 +174,7 @@ function render(x) {
         <span class="vquality ${qcls}">${x.quality_label}</span>
         ${x.needs_review ? '<span class="vflag">⚠ пересмотр</span>' : ''}
       </div>
+      ${x.action ? `<div class="vaction ${actCls}">${x.action}<span class="vzone"> · цена: ${x.price_zone_label||''}</span></div>` : ''}
     </header>
     <section class="vmetrics">
       <div class="vmetric"><span class="vm-k">Цена</span><span class="vm-v">${priceStr}</span></div>

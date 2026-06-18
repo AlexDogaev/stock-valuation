@@ -12,7 +12,7 @@ import sqlite3
 from typing import Any
 
 from app.config import FORECAST_YEARS
-from app.core import valuation, structural, classify, inflation, rate, quality_markers
+from app.core import valuation, structural, classify, inflation, rate, quality_markers, decision
 from app.data.db import get_db, get_settings, get_macro, roic_years
 
 
@@ -102,7 +102,7 @@ def evaluate_issuer(db: sqlite3.Connection, secid: str, macro_frag: dict | None 
                   f.roic, f.wacc, f.body_trend, f.revenue_growth, f.etype,
                   f.is_rentier, f.is_resource, f.net_profit, f.source AS fin_source,
                   s.moat, s.disruption, s.tam, s.regulation, s.demo, s.gosnaves,
-                  s.mult_seed, s.note AS struct_note, s.monetization_proven,
+                  s.mult_seed, s.note AS struct_note, s.monetization_proven, s.is_platform,
                   f.needs_review
            FROM issuers i
            LEFT JOIN market_data m ON m.secid = i.secid
@@ -146,6 +146,7 @@ def evaluate_issuer(db: sqlite3.Connection, secid: str, macro_frag: dict | None 
         structural_score=struct_res.score, roic_years=roic_years(db, r["secid"]),
         payout=r["payout"], revenue_growth=r["revenue_growth"],
         compression=compression, monetization_proven=r["monetization_proven"] or 0,
+        is_platform=r["is_platform"] or 0,
     )
     # макро-поправка hurdle: здоровье ФНБ + риск ШОКа (× качество, барбелл).
     # Реализованный ШОК-режим обнуляет hurdle внутри full_return — форвардная
@@ -278,6 +279,30 @@ def evaluate_issuer(db: sqlite3.Connection, secid: str, macro_frag: dict | None 
         warnings.append(f"Сигнал снят ПОКУПАЙ→ВОЗДЕРЖИСЬ: риск ШОКа {sp_:.0f}% ≥ {SHOCK_NO_BUY:.0f}% — "
                         f"системно покупать нет смысла (держать порох сухим до реализации шока).")
 
+    # тест «аванс в цене» (§7): какую прибыль имплицирует капа при нормальном P/E.
+    # Убыток/околоноль или кратное превышение → оптимизм заложен в цену.
+    opt = valuation.optimism_priced_in(cap_bln=cap_bln, net_profit_bln=net_profit)
+    optimism_flag = bool(opt and opt.flag)
+    if opt and opt.flag:
+        if opt.ratio is None:
+            warnings.append(
+                f"Аванс в цене (§7): капа имплицирует ≈{opt.implied_profit:.0f} млрд прибыли "
+                f"(при P/E {opt.normal_pe:.0f}) против убытка/околонуля TTM — оптимизм заложен в "
+                f"цену, апсайд только при ПРЕВЫШЕНИИ заложенного.")
+        else:
+            warnings.append(
+                f"Аванс в цене (§7): капа имплицирует ≈{opt.implied_profit:.0f} млрд прибыли "
+                f"(при P/E {opt.normal_pe:.0f}) — ×{opt.ratio:.1f} к текущей; оптимизм заложен в цену.")
+
+    # матрица §1: вердикт = пересечение [маркер качества] × [зона цены].
+    # Зона из сигнала (буфер = margin of safety); «оптимизм в цене» (§7) → expensive.
+    zone = decision.price_zone(signal=signal, optimism_priced_in=optimism_flag)
+    action = decision.matrix_action(qmark=qmark, zone=zone, signal=signal)
+    if action in decision.WATCHLIST_ACTIONS:
+        warnings.append(
+            "Качество при отрицательной margin of safety → «список ожидания на обвал», не покупка: "
+            "восхититься бизнесом — да, купить на блеске — нет (добор на обвале, когда выйдет аванс).")
+
     return {
         "secid": r["secid"],
         "name": r["shortname"],
@@ -302,6 +327,7 @@ def evaluate_issuer(db: sqlite3.Connection, secid: str, macro_frag: dict | None 
             "score": struct_res.score, "zone": struct_res.zone,
             "multiplier": mult, "detailed": detailed,
             "monetization_proven": bool(r["monetization_proven"]),
+            "is_platform": bool(r["is_platform"]),
             "note": r["struct_note"], "warnings": struct_res.warnings,
         },
         "calc": {
@@ -312,6 +338,14 @@ def evaluate_issuer(db: sqlite3.Connection, secid: str, macro_frag: dict | None 
         "market": market,
         "forecast": forecast,
         "signal": signal,
+        "action": action,
+        "price_zone": zone,
+        "price_zone_label": decision.ZONE_LABELS_RU[zone],
+        "optimism_priced_in": optimism_flag,
+        "optimism": ({"implied_profit_bln": round(opt.implied_profit, 0),
+                      "current_profit_bln": opt.current_profit,
+                      "ratio": round(opt.ratio, 1) if opt.ratio is not None else None,
+                      "normal_pe": opt.normal_pe} if opt else None),
         "quality_marker": qmark,
         "quality_label": quality_markers.LABELS_RU[qmark],
         "macro_adj": {"delta_pp": round(macro_delta * 100, 2), "fragility": round(macro_frag["F"], 2),

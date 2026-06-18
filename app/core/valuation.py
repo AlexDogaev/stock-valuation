@@ -160,6 +160,51 @@ def full_return(
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# Тест «аванс в цене» (оптимизм priced-in), INSTRUCTIONS §7
+# ─────────────────────────────────────────────────────────────────────────────
+
+NORMAL_PE = 6.0  # «нормальный» рыночный мультипликатор РФ (для обратного теста имплицированной прибыли)
+
+
+@dataclass
+class OptimismResult:
+    """Обратный диагностический тест: какую прибыль имплицирует текущая капа
+    при нормальном P/E, и насколько это выше текущей фактической прибыли."""
+    flag: bool                       # True → оптимизм заложен в цену (двигает в «список ожидания»)
+    implied_profit: float            # млрд: капа / нормальный P/E
+    current_profit: Optional[float]  # млрд: фактическая чистая прибыль TTM
+    ratio: Optional[float]           # implied / current (None при убытке/нуле)
+    normal_pe: float
+
+
+def optimism_priced_in(
+    *,
+    cap_bln: Optional[float],
+    net_profit_bln: Optional[float],
+    normal_pe: float = NORMAL_PE,
+    threshold: float = 2.0,
+) -> Optional[OptimismResult]:
+    """Сколько годовой прибыли «зашито» в цену сверх текущей (§7, §13 ОЗОН).
+
+    implied = капа / нормальный_P/E. Если implied кратно (≥ threshold) выше
+    текущей прибыли — рынок авансом заложил будущий рост, апсайд возможен только
+    при ПРЕВЫШЕНИИ заложенного → флаг. Убыток/околоноль → флаг горит всегда
+    (любая положительная имплицированная прибыль кратно выше).
+    """
+    if cap_bln is None or cap_bln <= 0 or normal_pe <= 0:
+        return None
+    implied = cap_bln / normal_pe
+    if net_profit_bln is None:
+        return None
+    if net_profit_bln <= 0:
+        return OptimismResult(flag=True, implied_profit=implied,
+                              current_profit=net_profit_bln, ratio=None, normal_pe=normal_pe)
+    ratio = implied / net_profit_bln
+    return OptimismResult(flag=ratio >= threshold, implied_profit=implied,
+                          current_profit=net_profit_bln, ratio=ratio, normal_pe=normal_pe)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Зрелый режим: справедливая капитализация и implied-доходность
 # ─────────────────────────────────────────────────────────────────────────────
 

@@ -27,12 +27,19 @@ LABELS_RU = {
 
 def quality_marker(*, structural_score: int, roic_years: int, payout: float | None,
                    revenue_growth: float | None, compression: float | None,
-                   monetization_proven: int) -> str:
+                   monetization_proven: int, is_platform: int = 0) -> str:
     is_hyper = (revenue_growth or 0.0) > HYPER_GROWTH
     is_multiple = compression is not None and compression < EXPENSIVE_COMPRESSION
 
     if structural_score < MIN_SCORE:
         return "ordinary"
+    # Платформа (§3, NOTES §2): критерий — ЭКОСИСТЕМНАЯ монетизация, не автономная
+    # прибыльность торгового ядра (ядро by design loss-leader). Ядро платформы
+    # реинвестирует (низкий payout) → к доказанному (дивидендная зрелость) не идёт;
+    # категориальная ловушка — считать «большую платформу» качеством без доказанной
+    # монетизации. monetization_proven здесь = доказана экосистемная монетизация.
+    if is_platform == 1:
+        return "PROSPECTIVE_QUALITY" if monetization_proven == 1 else "PROSPECTIVE_NO_QUALITY"
     if (roic_years >= MIN_ROIC_YEARS and not is_hyper
             and (payout or 0.0) >= MIN_PAYOUT and not is_multiple):
         return "PROVEN_QUALITY"

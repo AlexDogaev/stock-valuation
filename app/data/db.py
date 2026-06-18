@@ -138,6 +138,21 @@ CREATE TABLE IF NOT EXISTS macro_analysis (
     created_at   TEXT
 );
 
+-- траектория ключевой ставки: градация Opus по пейсу решений + риторике ЦБ (кеш)
+CREATE TABLE IF NOT EXISTS rate_trajectory (
+    id             INTEGER PRIMARY KEY CHECK (id = 1),
+    grade          TEXT,       -- агрессивное/обычное/медленное снижение|повышение | удержание
+    terminal_ks    REAL,       -- терминальная КС (доля), куда сойдёт
+    avg_step_pp    REAL,       -- средний шаг за заседание, пп (числовой пейс)
+    confidence     TEXT,
+    rationale      TEXT,
+    signal_read    TEXT,       -- как Opus прочитал риторику ЦБ
+    source         TEXT,       -- 'Opus + риторика' | 'пейс (без Opus)'
+    decisions_json TEXT,       -- последние решения [[дата,ставка],...]
+    model          TEXT,
+    created_at     TEXT
+);
+
 -- форвардная вероятность ШОКА по сценариям (субъективная оценка Opus, кеш)
 CREATE TABLE IF NOT EXISTS shock_risk (
     id             INTEGER PRIMARY KEY CHECK (id = 1),

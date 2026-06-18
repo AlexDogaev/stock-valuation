@@ -13,9 +13,10 @@ import os
 import sqlite3
 from datetime import datetime
 
-from app.data import llm
-from app.data.db import upsert
+from app.data import llm, cbr
+from app.data.db import upsert, get_macro
 from app.data.minfin import current_regime
+from app.core import rate_trajectory as rt
 
 SYSTEM = """Ты — макро-аналитик по РФ (бюджет, ФНБ, бюджетное правило, рубль) для
 инвестора с 20-летним горизонтом DCA. Тебе дают механический режим рынка по правилам
@@ -120,6 +121,102 @@ def _shock_user(regime: dict, context_md: str) -> str:
         f"КУРИРУЕМЫЙ БРИФИНГ СВЕЖИХ ДАННЫХ:\n{context_md or '(брифинг не заполнен)'}\n\n"
         f"Дай оценку строго в JSON (проценты — целые)."
     )
+
+
+# ── Траектория ключевой ставки: градация Opus по пейсу решений + риторике ЦБ ──
+SYSTEM_TRAJ = """Ты — аналитик денежно-кредитной политики ЦБ РФ. По ДИНАМИКЕ последних
+решений по ключевой ставке (пейс) и ТЕКСТУ последнего заявления Председателя (риторика,
+сигнал о будущих шагах) определи ТРАЕКТОРИЮ ставки — направление и скорость.
+Грейд строго один из: "агрессивное снижение", "обычное снижение", "медленное снижение",
+"удержание", "медленное повышение", "обычное повышение", "агрессивное повышение".
+Опирайся И на темп (пп за заседание), И на сигнал в риторике (смягчение/ужесточение,
+"будет оценивать целесообразность снижения" и т.п.) — риторика может менять скорость
+относительно голого пейса. Дай также ТЕРМИНАЛЬНУЮ ставку (куда сойдёт КС в долгосроке, %)
+из риторики/нейтрального уровня. Не выдумывай чисел сверх данных.
+Верни СТРОГО JSON без обрамления:
+{"grade":"...","terminal_ks_pct":float,"confidence":"низкая|средняя|высокая",
+"signal_read":"как прочитан сигнал ЦБ, 1-2 фразы","rationale":"обоснование 2-3 предложения"}"""
+
+
+def _traj_user(decisions: list, pace: dict, current_ks: float, signal: list[dict]) -> str:
+    dec = ", ".join(f"{d} {v*100:.2f}%" for d, v in decisions[-6:]) or "(нет данных)"
+    sig = signal[0]["text"] if signal else "(заявление ЦБ не получено — оценивай по пейсу)"
+    return (
+        f"ТЕКУЩАЯ КС: {current_ks*100:.2f}%.\n"
+        f"ПОСЛЕДНИЕ РЕШЕНИЯ (точки изменения): {dec}.\n"
+        f"ЧИСЛОВОЙ ПЕЙС: средний шаг {pace['avg_step_pp']} пп за заседание "
+        f"(предварительный грейд по числам: {pace['grade']}).\n\n"
+        f"ТЕКСТ ПОСЛЕДНЕГО ЗАЯВЛЕНИЯ ЦБ (риторика):\n{sig}\n\n"
+        f"Дай градацию строго в JSON."
+    )
+
+
+def get_rate_trajectory(db: sqlite3.Connection) -> dict | None:
+    row = db.execute("SELECT * FROM rate_trajectory WHERE id = 1").fetchone()
+    if not row:
+        return None
+    d = dict(row)
+    try:
+        d["decisions"] = json.loads(d.get("decisions_json") or "[]")
+    except (json.JSONDecodeError, TypeError):
+        d["decisions"] = []
+    return d
+
+
+def _store_trajectory(db, *, grade, terminal_ks, avg_step_pp, confidence, rationale,
+                      signal_read, source, decisions, model):
+    upsert(db, "rate_trajectory", dict(
+        id=1, grade=grade[:40], terminal_ks=terminal_ks,
+        avg_step_pp=avg_step_pp, confidence=str(confidence)[:20],
+        rationale=str(rationale)[:1500], signal_read=str(signal_read)[:800],
+        source=source, decisions_json=json.dumps(decisions, ensure_ascii=False)[:1000],
+        model=model, created_at=datetime.now().isoformat(timespec="seconds"),
+    ), pk="id")
+    return get_rate_trajectory(db)
+
+
+def assess_rate_trajectory(db: sqlite3.Connection) -> dict:
+    """Градация траектории КС: Opus по пейсу решений + риторике ЦБ; кеш.
+
+    Fallback без Opus — числовой грейд по темпу решений (rate_trajectory.pace_grade)
+    и терминал по дефолтному маппингу. Терминал кормит дефлятор (engine).
+    """
+    decisions = cbr.fetch_key_rate_history()
+    pace = rt.pace_grade(decisions)
+    current_ks = decisions[-1][1] if decisions else (get_macro(db).get("key_rate") or 0.145)
+
+    if not llm.enabled():
+        grade = pace["grade"]
+        tks = rt.grade_terminal_ks(grade, current_ks)
+        return _store_trajectory(
+            db, grade=grade, terminal_ks=tks, avg_step_pp=pace["avg_step_pp"],
+            confidence="—", rationale="Числовая градация по темпу решений (Opus не настроен).",
+            signal_read="", source="пейс (без Opus)", decisions=decisions[-6:],
+            model="")
+
+    signal = cbr.fetch_rate_signal()
+    data, err = llm.call_json(SYSTEM_TRAJ, _traj_user(decisions, pace, current_ks, signal),
+                              max_tokens=1100)
+    if err or not data:
+        grade = pace["grade"]
+        tks = rt.grade_terminal_ks(grade, current_ks)
+        return _store_trajectory(
+            db, grade=grade, terminal_ks=tks, avg_step_pp=pace["avg_step_pp"],
+            confidence="—", rationale=f"Fallback на пейс: {err or 'пустой ответ Opus'}.",
+            signal_read="", source="пейс (Opus недоступен)", decisions=decisions[-6:], model="")
+
+    grade = data.get("grade") if data.get("grade") in rt.GRADES else pace["grade"]
+    try:
+        tks = float(data["terminal_ks_pct"]) / 100.0
+        if not (0.0 < tks < 0.40):
+            tks = rt.grade_terminal_ks(grade, current_ks)
+    except (KeyError, TypeError, ValueError):
+        tks = rt.grade_terminal_ks(grade, current_ks)
+    return _store_trajectory(
+        db, grade=grade, terminal_ks=tks, avg_step_pp=pace["avg_step_pp"],
+        confidence=data.get("confidence", ""), rationale=data.get("rationale", ""),
+        signal_read=data.get("signal_read", ""), source="Opus + риторика",
+        decisions=decisions[-6:], model=os.environ.get("ANTHROPIC_MODEL", llm.DEFAULT_MODEL))
 
 
 def get_shock(db: sqlite3.Connection) -> dict | None:

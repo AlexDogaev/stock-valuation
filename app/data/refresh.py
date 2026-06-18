@@ -81,7 +81,9 @@ def job_macro_analysis() -> dict:
         with get_db() as db:
             a = llm_macro.analyze_macro(db)
             s = llm_macro.assess_shock(db)
+            t = llm_macro.assess_rate_trajectory(db)
         return {"analysis_ok": "error" not in a, "shock_ok": "error" not in s,
-                "shock_pct": s.get("aggregate_pct") if "error" not in s else None}
+                "shock_pct": s.get("aggregate_pct") if "error" not in s else None,
+                "rate_grade": t.get("grade") if t else None}
 
     return _run("macro_analysis", _analyze)

@@ -234,7 +234,8 @@ async function initNwfMarker() {
     document.getElementById("nwf-pop")?.removeAttribute("hidden");
   });
 
-  renderShock(r);   // вторая кнопка — форвардный риск ШОКА (из того же ответа /regime)
+  renderShock(r);             // форвардный риск ШОКА
+  renderRateTrajectory(r);    // траектория ключевой ставки (Opus по пейсу + риторике)
 }
 
 // ── кнопка «Риск ШОКа»: форвардная вероятность (субъективная оценка Opus) ──
@@ -245,7 +246,7 @@ function renderShock(r) {
   if (!host) return;
   const s = r.shock;
   if (!s || s.aggregate_pct == null) {
-    host.innerHTML = `<button class="nwf-btn nwf-edge" id="shock-btn" title="Риск ШОКа">⚡ Риск ШОКа · —</button>
+    host.innerHTML = `<button class="nwf-btn nwf-edge" id="shock-btn" title="Риск ШОКа">⚡ ШОК · —</button>
       <div class="nwf-pop" id="shock-pop" hidden><div class="nwf-pop-head nwf-edge">Риск ШОКа</div>
         <div class="nwf-analysis muted">Оценка Опуса не сгенерирована. <a href="#" id="shock-analyze">прогнать</a></div></div>`;
   } else {
@@ -259,7 +260,7 @@ function renderShock(r) {
         ${x.rationale ? `<div class="shock-rat">${glossarize(x.rationale)}</div>` : ""}`;
     }).join("");
     host.innerHTML = `<button class="nwf-btn nwf-${cls}" id="shock-btn" title="Форвардная вероятность ШОКА (оценка Opus)">
-        <span class="dot"></span> ⚡ Риск ШОКа · ${p}%</button>
+        <span class="dot"></span> ⚡ ШОК · ${p}%</button>
       <div class="nwf-pop" id="shock-pop" hidden>
         <div class="nwf-pop-head nwf-${cls}">Риск ШОКа · ${p}% <span class="muted" style="font-weight:400">/ ${s.horizon || "12 мес"}</span>
           <a href="#" id="shock-analyze" title="прогнать заново" style="float:right;font-weight:400">↻</a></div>
@@ -281,6 +282,54 @@ function renderShock(r) {
     try { await sendJSON("/regime/shock_assess", "POST", {}); } catch (err) {}
     await initNwfMarker();
     document.getElementById("shock-pop")?.removeAttribute("hidden");
+  });
+}
+// ── кнопка «Траектория КС»: градация Opus (направление × скорость) по пейсу + риторике ──
+function rateDir(grade) {
+  const speed = (grade || "").split(" ")[0] || "—";
+  if ((grade || "").includes("снижен")) return { arrow: "↓", cls: "buy", speed };
+  if ((grade || "").includes("повышен")) return { arrow: "↑", cls: "avoid", speed };
+  return { arrow: "→", cls: "edge", speed: "удержание" };
+}
+
+function renderRateTrajectory(r) {
+  const host = document.getElementById("rate-marker");
+  if (!host) return;
+  const t = r.rate_trajectory;
+  if (!t || !t.grade) {
+    host.innerHTML = `<button class="nwf-btn nwf-edge" id="rate-btn" title="Траектория КС">↕ КС · —</button>
+      <div class="nwf-pop" id="rate-pop" hidden><div class="nwf-pop-head nwf-edge">Траектория КС</div>
+        <div class="nwf-analysis muted">Градация не сгенерирована. <a href="#" id="rate-run">прогнать</a></div></div>`;
+  } else {
+    const d = rateDir(t.grade);
+    const tks = t.terminal_ks != null ? pct(t.terminal_ks) : "—";
+    const dec = (t.decisions || []).map(x => `${(x[0] || "").slice(2)} ${(x[1] * 100).toFixed(2)}%`).join(" · ");
+    host.innerHTML = `<button class="nwf-btn nwf-${d.cls}" id="rate-btn" title="Траектория ключевой ставки: ${t.grade} (Opus по пейсу + риторике ЦБ)">
+        <span class="dot"></span> ${d.arrow} КС</button>
+      <div class="nwf-pop" id="rate-pop" hidden>
+        <div class="nwf-pop-head nwf-${d.cls}">Траектория КС · ${t.grade}
+          <a href="#" id="rate-run" title="прогнать заново" style="float:right;font-weight:400">↻</a></div>
+        <div class="nwf-row"><span class="nwf-k">Терминальная КС</span><span class="nwf-v">${tks}</span></div>
+        <div class="nwf-row"><span class="nwf-k">Средний шаг</span><span class="nwf-v">${t.avg_step_pp} пп/заседание</span></div>
+        <div class="nwf-row"><span class="nwf-k">Уверенность</span><span class="nwf-v">${t.confidence || "—"}</span></div>
+        ${t.signal_read ? `<p class="nwf-note"><b>Сигнал ЦБ:</b> ${glossarize(t.signal_read)}</p>` : ""}
+        ${t.rationale ? `<p class="nwf-note">${glossarize(t.rationale)}</p>` : ""}
+        <div class="nwf-alloc">Решения: ${dec || "—"}</div>
+        <p class="shock-disc">${t.source || ""}. Кормит терминал дефлятора: инфляция = терминальная КС − реальный спред.</p>
+      </div>`;
+  }
+  const btn = document.getElementById("rate-btn"), pop = document.getElementById("rate-pop");
+  if (btn && pop) {
+    btn.addEventListener("click", (e) => { e.stopPropagation(); pop.hidden = !pop.hidden; });
+    document.addEventListener("click", (e) => { if (!host.contains(e.target)) pop.hidden = true; });
+  }
+  const rr = document.getElementById("rate-run");
+  if (rr) rr.addEventListener("click", async (e) => {
+    e.preventDefault(); e.stopPropagation();
+    rr.textContent = "оцениваю (Opus)…";
+    try { await sendJSON("/regime/rate_trajectory", "POST", {}); } catch (err) {}
+    await initNwfMarker();
+    document.getElementById("rate-pop")?.removeAttribute("hidden");
   });
 }
 document.addEventListener("DOMContentLoaded", initNwfMarker);

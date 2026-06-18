@@ -16,17 +16,33 @@ from app.data.db import get_db, get_settings, get_macro, roic_years
 
 
 # ── дефлятор = ощущаемая инфляция с учётом траектории снижения КС за горизонт ──
-def active_deflator_value(settings: dict) -> float:
+def terminal_inflation(settings: dict, db: sqlite3.Connection | None = None) -> float | None:
+    """Терминальная инфляция: из Opus-градации траектории КС (приоритет) или вручную.
+
+    Если есть оценка траектории КС с терминальной ставкой — инфляция = КС − реальный
+    спред (rate_trajectory). Иначе ручная настройка inflation_terminal.
+    """
+    if db is not None:
+        try:
+            from app.core import llm_macro, rate_trajectory as rt
+            tr = llm_macro.get_rate_trajectory(db)
+            if tr and tr.get("terminal_ks") is not None:
+                return rt.terminal_inflation_from_ks(tr["terminal_ks"])
+        except Exception:  # noqa: BLE001 — траектория не должна ронять оценку
+            pass
+    return settings.get("inflation_terminal")
+
+
+def active_deflator_value(settings: dict, db: sqlite3.Connection | None = None) -> float:
     """Эффективный дефлятор за горизонт: глайд от ощущаемой (год 1) к терминальной.
 
-    Геом. среднее по траектории (см. valuation.horizon_deflator). Горизонт 1 год
-    или терминал = текущей → плоско = ощущаемая.
+    Терминал — из траектории КС (Opus) или ручной. Геом. среднее по траектории
+    (valuation.horizon_deflator). Горизонт 1 год или терминал = текущей → плоско.
     """
     felt = settings.get("felt_inflation")
     felt = felt if felt is not None else DEFAULTS["felt_inflation"]
-    terminal = settings.get("inflation_terminal")
     years = settings.get("forecast_years") or FORECAST_YEARS
-    return valuation.horizon_deflator(felt, terminal, years)
+    return valuation.horizon_deflator(felt, terminal_inflation(settings, db), years)
 
 
 # ── структурный множитель: детальные баллы или seed ──────────────────────────
@@ -112,7 +128,7 @@ def evaluate_issuer(db: sqlite3.Connection, secid: str, macro_frag: dict | None 
 
     settings = get_settings(db)
     macro = get_macro(db)
-    deflator = active_deflator_value(settings)
+    deflator = active_deflator_value(settings, db)
 
     struct_res, mult, detailed = structural_for(r)
 
@@ -258,12 +274,20 @@ def evaluate_issuer(db: sqlite3.Connection, secid: str, macro_frag: dict | None 
             f"({'осторожнее' if macro_delta > 0 else 'агрессивнее'}): "
             f"ФНБ деваль {macro_frag['deval_score']}/6, риск ШОКа {macro_frag['shock_pct']}%.")
     _felt = settings.get("felt_inflation") or DEFAULTS["felt_inflation"]
-    _term = settings.get("inflation_terminal")
+    _term = terminal_inflation(settings, db)
     _yrs = settings.get("forecast_years") or FORECAST_YEARS
     if _term is not None and _yrs > 1 and abs(_term - _felt) > 0.001:
+        _src = ""
+        try:
+            from app.core import llm_macro
+            _tr = llm_macro.get_rate_trajectory(db)
+            if _tr and _tr.get("terminal_ks") is not None:
+                _src = f"; траектория КС: {_tr['grade']} → терминал {_tr['terminal_ks']*100:.1f}%"
+        except Exception:  # noqa: BLE001
+            pass
         warnings.append(
             f"Дефлятор {deflator*100:.1f}% — среднее по траектории за {_yrs}г "
-            f"(инфляция {_felt*100:.1f}%→{_term*100:.1f}% при снижении КС), не плоские {_felt*100:.1f}%.")
+            f"(инфляция {_felt*100:.1f}%→{_term*100:.1f}%{_src}), не плоские {_felt*100:.1f}%.")
 
     # качественный гейт (owner-rule): «обычное» качество НЕ может быть ПОКУПАЙ.
     # Защита от value-trap и завышенного сигнала (фантомные/разовые дивы, дешёвые

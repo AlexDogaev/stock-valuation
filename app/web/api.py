@@ -48,7 +48,7 @@ class Settings(BaseModel):
 def read_settings():
     with get_db() as db:
         s = get_settings(db)
-    s["deflator_active"] = engine.active_deflator_value(s)
+        s["deflator_active"] = engine.active_deflator_value(s, db)
     return s
 
 
@@ -211,6 +211,7 @@ def get_regime():
         r["analysis"] = llm_macro.get_analysis(db)
         r["context"] = llm_macro.get_context(db)
         r["shock"] = llm_macro.get_shock(db)
+        r["rate_trajectory"] = llm_macro.get_rate_trajectory(db)
     return r
 
 
@@ -228,6 +229,14 @@ def regime_shock_assess():
     from app.core import llm_macro
     with get_db() as db:
         return llm_macro.assess_shock(db)
+
+
+@router.post("/regime/rate_trajectory")
+def regime_rate_trajectory():
+    """Градация траектории КС: Opus по пейсу решений ЦБ + риторике (fallback — пейс)."""
+    from app.core import llm_macro
+    with get_db() as db:
+        return llm_macro.assess_rate_trajectory(db)
 
 
 class MacroContextIn(BaseModel):

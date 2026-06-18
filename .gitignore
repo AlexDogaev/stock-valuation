@@ -21,3 +21,7 @@ __pycache__/
 .pytest_cache/
 .venv/
 venv/
+
+# dev→prod Opus sync temp
+scripts/.prod_db.sqlite3
+scripts/_opus_push.json

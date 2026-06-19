@@ -253,6 +253,17 @@ document.getElementById("brefresh").addEventListener("click", async (e) => {
   e.target.disabled = true; e.target.textContent = "Обновляю…";
   try { await loadBonds(); } finally { e.target.disabled = false; e.target.textContent = "↻ Обновить (MOEX ISS)"; }
 });
+// мгновенный пересчёт ячейки «Риск шока» при смене горизонта (до полной перезагрузки страницы)
+(function () {
+  const hz = document.getElementById("g-horizon");
+  if (!hz) return;
+  hz.addEventListener("change", () => {
+    if (!BDATA || !BDATA.outlook) return;
+    const H = parseInt(hz.value), o = BDATA.outlook;
+    document.getElementById("ol-pshock-k").textContent = "Риск шока за " + H + "г";
+    document.getElementById("ol-pshock").textContent = pct(1 - Math.pow(1 - o.p_shock, H));
+  });
+})();
 loadBonds();
 loadScenario();
 </script>

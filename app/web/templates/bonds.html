@@ -14,6 +14,11 @@
   .btab:hover { color: var(--ink); }
   .btab.on { color: var(--ink); border-bottom-color: var(--buy); }
   .btab .cnt { color: var(--faint); font-size: 12px; margin-left: 6px; }
+  .cfilter { margin: 10px 0 0; font-size: 12px; color: var(--muted); letter-spacing: .05em; }
+  .cbtn { background: none; border: 1px solid var(--hair); color: var(--muted); font-family: inherit;
+    font-size: 12px; padding: 3px 11px; margin-left: 6px; cursor: pointer; border-radius: 0; transition: color .15s, border-color .15s; }
+  .cbtn:hover { color: var(--ink); }
+  .cbtn.on { color: var(--ink); border-color: var(--ink); }
 </style>
 {% endblock %}
 {% block content %}
@@ -29,12 +34,20 @@
   <button class="btab on" data-tab="ОФЗ" type="button">ОФЗ <span class="cnt" id="cnt-ofz"></span></button>
   <button class="btab" data-tab="Корп" type="button">Корпоративные <span class="cnt" id="cnt-corp"></span></button>
 </div>
+<div class="cfilter">Купон:
+  <button class="cbtn on" data-ct="Все" type="button">Все</button>
+  <button class="cbtn" data-ct="Фикс" type="button">Фикс</button>
+  <button class="cbtn" data-ct="Флоат" type="button">Флоат</button>
+  <button class="cbtn" data-ct="Линкер" type="button">Линкер</button>
+</div>
 <div id="bbanner" class="sub" style="margin:12px 0 0;padding:10px 14px;border-left:2px solid var(--hair);line-height:1.6"></div>
 <div class="panel" style="padding:0;overflow:hidden">
   <table id="btbl">
     <thead><tr>
-      <th>Бумага</th><th>Тип</th><th>YTM</th><th>Реал.YTM</th><th>Дюр, лет</th>
-      <th>Спред</th><th>PD рын.</th><th>Ставка</th><th>Сигнал</th>
+      <th>Бумага</th><th>Купон</th><th>YTM</th><th>Реал.YTM</th>
+      <th title="реальная доходность за вычетом ожидаемых кредитных потерь PD×LGD">Реал.−риск</th>
+      <th title="вероятность дефолта (из рыночного спреда; интерим)">Дефолт-риск</th>
+      <th>Дюр, лет</th><th>Ставка</th><th>Сигнал</th>
     </tr></thead>
     <tbody id="brows"><tr><td colspan="9" class="muted">Загрузка с MOEX ISS…</td></tr></tbody>
   </table>
@@ -44,32 +57,33 @@
 {% block scripts %}
 <script>
 function bondRow(b) {
-  const sp = b.spread != null ? pctSigned(b.spread) : "—";
   const pd = b.pd != null ? pct(b.pd) : "—";
   const cred = b.credit_ok ? "" : ' <span class="nocred">кредит ✗</span>';
+  const off = b.offer ? ' <span class="muted" title="оферта — yield-to-put">оф</span>' : '';
   return `<tr>
-    <td>${b.name}${cred}</td>
-    <td><span class="btype ${b.type==='ОФЗ'?'ofz':''}">${b.type}</span></td>
+    <td>${b.name}${off}${cred}</td>
+    <td><span class="btype ${b.coupon_type==='Линкер'?'ofz':''}">${b.coupon_type||'—'}</span></td>
     <td class="num">${pct(b.ytm)}</td>
     <td class="num">${pctSigned(b.real_ytm)}</td>
-    <td class="num">${num(b.duration_years,1)}${b.offer?' <span class="muted" title="оферта — yield-to-put">оф</span>':''}</td>
-    <td class="num">${sp}</td>
+    <td class="num"><b>${pctSigned(b.risk_adj_yield)}</b></td>
     <td class="num">${pd}</td>
+    <td class="num">${num(b.duration_years,1)}</td>
     <td class="num"><span class="muted">${b.rate_signal}</span></td>
     <td>${sigBadge(b.signal)}</td>`;
 }
-let BDATA = null, TAB = "ОФЗ";
+let BDATA = null, TAB = "ОФЗ", CTYPE = "Все";
 function renderTab() {
   const rows = document.getElementById("brows");
   if (!BDATA) return;
   if (BDATA.error) { rows.innerHTML = `<tr><td colspan="9" class="warn">${BDATA.error}</td></tr>`; return; }
-  const list = BDATA.bonds.filter(b => b.type === TAB);
+  let list = BDATA.bonds.filter(b => b.type === TAB);
+  if (CTYPE !== "Все") list = list.filter(b => b.coupon_type === CTYPE);
   rows.innerHTML = list.length ? list.map(bondRow).join("")
                               : `<tr><td colspan="9" class="muted">Нет бумаг.</td></tr>`;
   const buy = list.filter(b => b.signal === "ПОКУПАЙ").length;
   document.getElementById("bmeta").textContent =
-    `${TAB === "ОФЗ" ? "ОФЗ" : "Корпоративные"}: ${list.length} бумаг, ${buy} ПОКУПАЙ.`
-    + (TAB === "Корп" ? " PD junk-cap 10% (интерим); рейтинг/фундаментал — фаза 2b." : "");
+    `${TAB === "ОФЗ" ? "ОФЗ" : "Корпоративные"}${CTYPE !== "Все" ? " · " + CTYPE : ""}: ${list.length} бумаг, ${buy} ПОКУПАЙ.`
+    + (TAB === "Корп" ? " Дефолт-риск из рыночного спреда (интерим); рейтинг/фундаментал — фаза 2b." : "");
 }
 function setTab(t) {
   TAB = t;
@@ -77,6 +91,11 @@ function setTab(t) {
   renderTab();
 }
 document.querySelectorAll(".btab").forEach(b => b.addEventListener("click", () => setTab(b.dataset.tab)));
+document.querySelectorAll(".cbtn").forEach(b => b.addEventListener("click", () => {
+  CTYPE = b.dataset.ct;
+  document.querySelectorAll(".cbtn").forEach(x => x.classList.toggle("on", x.dataset.ct === CTYPE));
+  renderTab();
+}));
 
 async function loadBonds() {
   document.getElementById("brows").innerHTML = `<tr><td colspan="9" class="muted">Загрузка с MOEX ISS…</td></tr>`;

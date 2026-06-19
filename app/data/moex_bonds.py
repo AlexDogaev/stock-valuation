@@ -15,6 +15,19 @@ from app.config import MOEX_BASE
 OFZ_BOARD = "TQOB"    # ОФЗ
 CORP_BOARD = "TQCB"   # корпоративные
 RUB = {"SUR", "RUB"}
+CLASSIC = {"Фикс", "Флоат", "Линкер"}   # классические бонды (структурные/конверт. — вне скринера)
+
+
+def classify_coupon(bondtype: str | None) -> str:
+    """Тип купона из MOEX BONDTYPE → Фикс | Флоат | Линкер | Прочее."""
+    bt = (bondtype or "").lower()
+    if "флоат" in bt:
+        return "Флоат"
+    if "линкер" in bt or "индексир" in bt:
+        return "Линкер"
+    if "фикс" in bt or "аморт" in bt or "дисконт" in bt:
+        return "Фикс"
+    return "Прочее"   # структурные/конвертируемые/валютные — не классический бонд
 _CACHE_TTL = 15 * 60
 _cache: dict[str, tuple[float, list[dict]]] = {}
 
@@ -49,6 +62,7 @@ def fetch_bonds(board: str) -> list[dict]:
             "ytm": eff_ytm / 100.0, "duration_years": round(dur_days / 365.0, 2),
             "coupon_pct": s[sc["COUPONPERCENT"]], "matdate": s[sc["MATDATE"]],
             "offer": offer or None, "num_trades": (m[mc["NUMTRADES"]] if m else 0) or 0,
+            "coupon_type": classify_coupon(s[sc["BONDTYPE"]]),
         })
     _cache[board] = (time.time(), out)
     return out

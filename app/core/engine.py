@@ -483,27 +483,37 @@ def screen_bonds(db: sqlite3.Connection) -> dict:
     except Exception as e:  # noqa: BLE001 — без сети скринер не должен ронять сервис
         return {"error": f"MOEX ISS недоступен: {type(e).__name__}", "bonds": [], "count": 0}
 
-    ofz_clean = [b for b in ofz if mb.is_sane(b, min_dur=0.25, ytm_lo=0.05, ytm_hi=0.30, min_trades=0)]
-    curve = mb.ofz_curve(ofz_clean)
+    LGD = credit_pd.LGD_DEFAULT
+    # только классические бонды (Фикс/Флоат/Линкер); структурные/конвертируемые — вне скринера
+    ofz_clean = [b for b in ofz if mb.is_sane(b, min_dur=0.25, ytm_lo=0.05, ytm_hi=0.30, min_trades=0)
+                 and b["coupon_type"] in mb.CLASSIC]
+    curve = mb.ofz_curve([b for b in ofz_clean if b["coupon_type"] == "Фикс"])  # кривая = ФИКС ОФЗ
     out: list[dict] = []
     for b in ofz_clean:
-        a = bmod.assess_bond(ytm=b["ytm"], e_inflation=e_infl, hurdle_real=bond_hurdle,
-                             buffer=bond_buffer, rate_direction=rate_direction, is_ofz=True)
+        is_lk = b["coupon_type"] == "Линкер"   # у линкера YTM УЖЕ реальный → не вычитать инфляцию
+        a = bmod.assess_bond(ytm=b["ytm"], e_inflation=(0.0 if is_lk else e_infl), hurdle_real=bond_hurdle,
+                             buffer=bond_buffer, rate_direction=rate_direction,
+                             floater=(b["coupon_type"] == "Флоат"), is_ofz=True)
         out.append({**b, "type": "ОФЗ", "spread": None, "pd": 0.0, "real_ytm": a.real_ytm,
-                    "rate_signal": a.rate_signal, "credit_ok": True, "signal": a.signal})
-    corp_clean = sorted([b for b in corp if mb.is_sane(b, min_dur=0.5, ytm_lo=0.06, ytm_hi=0.40, min_trades=10)],
-                        key=lambda x: -x["num_trades"])[:70]
+                    "risk_adj_yield": a.real_ytm, "rate_signal": a.rate_signal,
+                    "credit_ok": True, "signal": a.signal})
+    corp_clean = sorted([b for b in corp if mb.is_sane(b, min_dur=0.5, ytm_lo=0.06, ytm_hi=0.40, min_trades=10)
+                         and b["coupon_type"] in mb.CLASSIC], key=lambda x: -x["num_trades"])[:90]
     for b in corp_clean:
+        is_lk = b["coupon_type"] == "Линкер"
         kbd = mb.curve_at(curve, b["duration_years"])
-        spread = (b["ytm"] - kbd) if kbd is not None else None
+        spread = (b["ytm"] - kbd) if (kbd is not None and not is_lk) else None
         pd_m = credit_pd.pd_market(spread) if spread is not None else None
         cred = pd_m is None or pd_m <= PD_CAP          # интерим: отсечь junk по рыночной PD
-        a = bmod.assess_bond(ytm=b["ytm"], e_inflation=e_infl, hurdle_real=bond_hurdle, buffer=bond_buffer,
-                             rate_direction=rate_direction, kbd_at_duration=kbd, credit_ok_override=cred)
+        a = bmod.assess_bond(ytm=b["ytm"], e_inflation=(0.0 if is_lk else e_infl), hurdle_real=bond_hurdle,
+                             buffer=bond_buffer, rate_direction=rate_direction,
+                             floater=(b["coupon_type"] == "Флоат"), kbd_at_duration=kbd, credit_ok_override=cred)
+        pdv = pd_m or 0.0
         out.append({**b, "type": "Корп", "spread": round(spread, 4) if spread is not None else None,
-                    "pd": round(pd_m, 4) if pd_m is not None else None, "real_ytm": a.real_ytm,
+                    "pd": round(pdv, 4), "real_ytm": a.real_ytm,
+                    "risk_adj_yield": round(a.real_ytm - pdv * LGD, 4),   # реал. за вычетом ожид. потерь
                     "rate_signal": a.rate_signal, "credit_ok": a.credit_ok, "signal": a.signal})
-    out.sort(key=lambda x: (x["real_ytm"] is None, -(x["real_ytm"] or -99)))
+    out.sort(key=lambda x: (x["risk_adj_yield"] is None, -(x.get("risk_adj_yield") or -99)))  # по реал. с уч. риска
     return {"bonds": out, "count": len(out), "buy": sum(1 for b in out if b["signal"] == "ПОКУПАЙ"),
             "ofz_curve": [[d, round(y, 4)] for d, y in curve], "rate_direction": rate_direction,
             "e_inflation": round(e_infl, 4), "bond_hurdle": bond_hurdle}

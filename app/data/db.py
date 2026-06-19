@@ -256,9 +256,16 @@ def init_db() -> None:
         _ensure_column(db, "user_settings", "tax_rate", "REAL DEFAULT 0.13")     # НДФЛ (посленалоговый слой)
         _ensure_column(db, "user_settings", "tax_aware", "INTEGER DEFAULT 1")    # сигнал на посленалоговой основе
         _ensure_column(db, "user_settings", "iis3", "INTEGER DEFAULT 0")         # обёртка ИИС-3
+        _ensure_column(db, "user_settings", "normal_pe", "REAL DEFAULT 6.0")     # «нормальный» P/E РФ для теста оптимизма (#3, вынесен из хардкода)
         _ensure_column(db, "financials", "currency_profile", "TEXT DEFAULT 'MIXED'")  # EXPORTER|DOMESTIC|MIXED (#11)
         _ensure_column(db, "structural", "moat_risk", "INTEGER DEFAULT 0")    # уязвимость рва к дизрупции 0/1/2 (§4,9)
         _ensure_column(db, "structural", "is_enabler", "INTEGER DEFAULT 0")   # ENABLER-рельса (рента устойчивее) (§4)
+        # обнуляющие РФ-риски (red-team #5): 0 нет / 1 повышенный / 2 острый — гейт сигнала
+        _ensure_column(db, "structural", "minority_risk", "INTEGER DEFAULT 0")       # корп.упр / миноритарий
+        _ensure_column(db, "structural", "expropriation_risk", "INTEGER DEFAULT 0")  # экспроприация/национализация
+        _ensure_column(db, "structural", "delisting_risk", "INTEGER DEFAULT 0")      # делистинг
+        _ensure_column(db, "structural", "sanctions_risk", "INTEGER DEFAULT 0")      # санкц.заморозка
+        _ensure_column(db, "structural", "liquidity_risk", "INTEGER DEFAULT 0")      # неликвидность выхода
         _ensure_column(db, "shock_risk", "expected_damage_pct", "REAL")  # Σ P×severity (#15)
         _ensure_column(db, "shock_risk", "independent_pct", "REAL")      # наивная 1−∏(1−p)
         _ensure_column(db, "shock_risk", "p_horizon3_pct", "REAL")       # P за 3 года (горизонт решения)

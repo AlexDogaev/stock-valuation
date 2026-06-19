@@ -114,6 +114,12 @@ function render(x) {
   const i = x.inputs, s = x.structural, c = x.calc, m = x.market, f = x.forecast;
   const dims = [["Ров","moat"],["Дизрупция","disruption"],["Секул.TAM","tam"],
                 ["Регуляторика","regulation"],["Демо","demo"],["Госнавес*","gosnaves"]];
+  const triskDims = [["Миноритарий / корп.упр","minority_risk","minority"],
+                     ["Экспроприация","expropriation_risk","expropriation"],
+                     ["Делистинг","delisting_risk","delisting"],
+                     ["Санкц.заморозка","sanctions_risk","sanctions"],
+                     ["Неликвидность выхода","liquidity_risk","liquidity"]];
+  const tf = (x.tail_risk && x.tail_risk.flags) || {};
   const chips = dims.map(([lbl,k]) =>
     `<span class="chip">${lbl}: <b>${s[k]>=0?"+":""}${s[k]}</b></span>`).join("");
 
@@ -173,6 +179,7 @@ function render(x) {
         <span class="vsep">/</span>
         <span class="vquality ${qcls}">${x.quality_label}</span>
         ${x.needs_review ? '<span class="vflag">⚠ пересмотр</span>' : ''}
+        ${x.tail_risk && x.tail_risk.gate ? `<span class="vflag" title="${(x.tail_risk.notes||[]).join('; ')}">${x.tail_risk.gate==='block'?'⛔':'⚠'} обнуляющий риск</span>` : ''}
       </div>
       ${x.action ? `<div class="vaction ${actCls}">${x.action}<span class="vzone"> · цена: ${x.price_zone_label||''}</span></div>` : ''}
     </header>
@@ -253,6 +260,21 @@ function render(x) {
         <span id="saved" class="muted" style="margin-left:10px"></span></div>
       <div id="llm-rationale" class="sub" style="margin-top:8px"></div>
     </div>
+
+    <div class="panel"><h2>⚠ Обнуляющие РФ-риски (гейт сигнала)</h2>
+      <p class="sub">Режут ТЕЛО, не доходность — буфер/MoS не спасают. Острый (2) → сигнал ВОЗДЕРЖИСЬ;
+        повышенный (1) → ПОКУПАЙ понижается до ГРАНИЦА.</p>
+      <div class="grid" id="trisk-edit">
+        ${triskDims.map(([lbl,ak,fk])=>`<div><label>${lbl}</label>
+          <select id="tr-${ak}">
+            <option value="0"${(tf[fk]||0)==0?' selected':''}>нет</option>
+            <option value="1"${(tf[fk]||0)==1?' selected':''}>повышенный</option>
+            <option value="2"${(tf[fk]||0)==2?' selected':''}>острый</option>
+          </select></div>`).join("")}
+      </div>
+      <div style="margin-top:12px"><button id="save-trisk">Сохранить и пересчитать</button>
+        <span id="saved-trisk" class="muted" style="margin-left:10px"></span></div>
+    </div>
   </div>`;
 
   document.getElementById("card").innerHTML = summary + details;
@@ -274,6 +296,16 @@ function render(x) {
     document.getElementById("details").removeAttribute("hidden");
     document.getElementById("toggle-details").textContent = "Индикаторы −";
     document.getElementById("saved").textContent = "Сохранено ✓";
+  });
+
+  document.getElementById("save-trisk").addEventListener("click", async () => {
+    const body = {};
+    triskDims.forEach(([_,ak]) => body[ak] = parseInt(document.getElementById("tr-"+ak).value)||0);
+    const res = await sendJSON(`/issuers/${SECID}/tail_risk`, "PUT", body);
+    render(res);
+    document.getElementById("details").removeAttribute("hidden");
+    document.getElementById("toggle-details").textContent = "Индикаторы −";
+    document.getElementById("saved-trisk").textContent = "Сохранено ✓";
   });
 
   document.getElementById("llm-draft").addEventListener("click", async (e) => {

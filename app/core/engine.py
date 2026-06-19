@@ -12,7 +12,7 @@ from datetime import date
 from typing import Any
 
 from app.config import FORECAST_YEARS, DEFAULTS
-from app.core import valuation, structural, classify, rate, quality_markers, decision, tax, tectonic
+from app.core import valuation, structural, classify, rate, quality_markers, decision, tax, tectonic, tail_risk
 from app.data.db import get_db, get_settings, get_macro, roic_years
 
 
@@ -123,6 +123,7 @@ def evaluate_issuer(db: sqlite3.Connection, secid: str, macro_frag: dict | None 
                   s.moat, s.disruption, s.tam, s.regulation, s.demo, s.gosnaves,
                   s.mult_seed, s.note AS struct_note, s.monetization_proven, s.is_platform,
                   s.moat_risk, s.is_enabler,
+                  s.minority_risk, s.expropriation_risk, s.delisting_risk, s.sanctions_risk, s.liquidity_risk,
                   f.needs_review
            FROM issuers i
            LEFT JOIN market_data m ON m.secid = i.secid
@@ -137,7 +138,15 @@ def evaluate_issuer(db: sqlite3.Connection, secid: str, macro_frag: dict | None 
 
     settings = get_settings(db)
     macro = get_macro(db)
-    deflator = active_deflator_value(settings, db)
+    n = settings.get("forecast_years") or FORECAST_YEARS
+    # #2 УНИФИКАЦИЯ: инфляция акций — из ВЕРХНЕГО прогноза (база + шок-инфляция), как у бондов/FX.
+    # Двойная дверь шока РАЗВЕДЕНА: шок-ИНФЛЯЦИЯ → в дефлятор (здесь); шок-ПРОСАДКА → forward-тилт
+    # hurdle (F, ниже) для сигнала-сейчас И equity_shock_drag в сценарии (горизонтная стоимость).
+    # Это РАЗНЫЕ эффекты шока (инфляция vs цена) и РАЗНЫЕ вопросы (купить сейчас vs держать H лет) —
+    # не двойной счёт.
+    from app.core import macro_outlook as mo
+    outlook = mo.build_outlook(db, n)
+    deflator = outlook.e_inflation(n)
 
     struct_res, mult, detailed = structural_for(r)
 
@@ -255,9 +264,7 @@ def evaluate_issuer(db: sqlite3.Connection, secid: str, macro_frag: dict | None 
         "fetched_at": r["fetched_at"],
     }
 
-    # прогноз на N лет (горизонт из настроек, по умолчанию 3): цена тела + доходность
-    n = settings.get("forecast_years") or FORECAST_YEARS
-
+    # прогноз на N лет (n определён выше): цена тела + доходность
     # посленалоговый слой (§5): дивы −налог ежегодно; курсовой рост — ЛДВ освобождает при
     # горизонте ≥3г / ИИС-3. Сигнал и сравнение с hurdle — на ПОСЛЕналоговой основе
     # (tax_aware), иначе валовое сравнение завышает дивидендные имена против ростовых.
@@ -301,6 +308,12 @@ def evaluate_issuer(db: sqlite3.Connection, secid: str, macro_frag: dict | None 
             f"Макро-поправка hurdle {macro_delta*100:+.1f}пп "
             f"({'осторожнее' if macro_delta > 0 else 'агрессивнее'}): "
             f"ФНБ деваль {macro_frag['deval_score']}/6, риск ШОКа {macro_frag['shock_pct']}%.")
+    _eq_drag = outlook.equity_shock_drag(n)
+    if _eq_drag >= 0.005:
+        warnings.append(
+            f"Шок входит ДВУМЯ разными дверьми (НЕ двойной счёт): (1) шок-ИНФЛЯЦИЯ уже в дефляторе "
+            f"{deflator*100:.1f}%; (2) шок-ПРОСАДКА — forward-тилт hurdle (купить СЕЙЧАС) + горизонтная "
+            f"стоимость ≈{_eq_drag*100:.1f}%/год в сценарии (держать {n}г). Разные эффекты, разные вопросы.")
     if macro_frag["F"] > MACRO_F0 and currency_profile != "MIXED":
         warnings.append(
             "Экспортёр (выручка в валюте): девальвация в плюс — штраф макро снижен, в RISK ДЕРЖАТЬ как хедж."
@@ -372,9 +385,24 @@ def evaluate_issuer(db: sqlite3.Connection, secid: str, macro_frag: dict | None 
         warnings.append(f"Сигнал снят ПОКУПАЙ→ВОЗДЕРЖИСЬ: риск ШОКа {sp_:.0f}% ≥ {SHOCK_NO_BUY:.0f}% — "
                         f"системно покупать нет смысла (держать порох сухим до реализации шока).")
 
+    # ОБНУЛЯЮЩИЕ РФ-РИСКИ (red-team #5): экспроприация/делистинг/санкц.заморозка/миноритарий/
+    # неликвидность — режут ТЕЛО, MoS не спасает. Острый → ВОЗДЕРЖИСЬ; повышенный → ПОКУПАЙ→ГРАНИЦА.
+    trisk = tail_risk.assess_tail_risk(
+        minority=r["minority_risk"] or 0, expropriation=r["expropriation_risk"] or 0,
+        delisting=r["delisting_risk"] or 0, sanctions=r["sanctions_risk"] or 0,
+        liquidity=r["liquidity_risk"] or 0)
+    if trisk.gate == "block" and signal != "ВОЗДЕРЖИСЬ":
+        signal = "ВОЗДЕРЖИСЬ"
+        warnings.append("Сигнал снят → ВОЗДЕРЖИСЬ: ОСТРЫЙ обнуляющий риск (режет тело, MoS не спасает) — "
+                        + "; ".join(trisk.notes))
+    elif trisk.gate == "cap" and signal == "ПОКУПАЙ":
+        signal = "ГРАНИЦА"
+        warnings.append("Сигнал понижен ПОКУПАЙ→ГРАНИЦА: повышенный обнуляющий риск — " + "; ".join(trisk.notes))
+
     # тест «аванс в цене» (§7): какую прибыль имплицирует капа при нормальном P/E.
     # Убыток/околоноль или кратное превышение → оптимизм заложен в цену.
-    opt = valuation.optimism_priced_in(cap_bln=cap_bln, net_profit_bln=net_profit)
+    opt = valuation.optimism_priced_in(cap_bln=cap_bln, net_profit_bln=net_profit,
+                                       normal_pe=settings.get("normal_pe") or valuation.NORMAL_PE)
     optimism_flag = bool(opt and opt.flag)
     if opt and opt.flag:
         if opt.ratio is None:
@@ -447,7 +475,12 @@ def evaluate_issuer(db: sqlite3.Connection, secid: str, macro_frag: dict | None 
         "quality_label": quality_markers.LABELS_RU[qmark],
         "macro_adj": {"delta_pp": round(macro_delta * 100, 2), "fragility": round(macro_frag["F"], 2),
                       "deval_score": macro_frag["deval_score"], "shock_pct": macro_frag["shock_pct"]},
+        "shock_equity": {"drag_h": round(outlook.equity_shock_drag(n), 4),
+                         "drag_h_lstress": round(outlook.equity_shock_drag(n, recovery=0.0), 4),
+                         "hazard": round(outlook.shock.p, 4), "horizon": n},
         "needs_review": bool(r["needs_review"]),
+        "tail_risk": {"max_severity": trisk.max_severity, "gate": trisk.gate,
+                      "flags": trisk.flags, "notes": trisk.notes},
         "currency_profile": currency_profile,
         "tectonic": {"period": tect.period, "g_market_base": tect.g_market_base,
                      "sector_delta": tect.sector_delta, "routed": tect.routed,
@@ -603,15 +636,20 @@ def scenario_table(db: sqlite3.Connection, horizons=(3, 5, 10, 20)) -> dict:
         pass
     rows = []
     for H in horizons:
+        lo, hi = ol.cumulative_shock_p_range(H)
         rows.append({
             "horizon": H,
             "p_shock_cum": round(ol.cumulative_shock_p(H), 4),
+            "p_shock_cum_band": [lo, hi],                         # интервал (red-team #1)
             "e_inflation": round(ol.e_inflation(H), 4),
             "ofz": (ol.real_return("ofz", H, nominal=long_ytm) if long_ytm else None),
             "fx": (ol.real_return("fx", H, fx_ytm=fx_ytm) if fx_ytm else None),
             "equity": (ol.real_return("equity", H, nominal=long_ytm) if long_ytm else None),
+            # L-кризис стресс (без отскока, recovery=0) — худший случай на длинном горизонте (#6)
+            "equity_lstress": (ol.real_return("equity", H, nominal=long_ytm, recovery=0.0) if long_ytm else None),
         })
     return {"horizons": rows, "outlook": ol.as_dict(), "sectoral": ol.shock.sectoral,
+            "advisory_note": mo.ADVISORY_NOTE,
             "inputs": {"long_ofz_ytm": (round(long_ytm, 4) if long_ytm else None),
                        "fx_ytm": (round(fx_ytm, 4) if fx_ytm else None), "erp": mo.EQUITY_RISK_PREMIUM,
                        "recovery_1y": ol.shock.recovery_1y, "equity_dd": ol.shock.equity_dd}}

@@ -257,6 +257,9 @@ function renderShock(r) {
     const H = hzSel ? (parseInt(hzSel.value) || 1) : 1;
     const p = Math.round((1 - Math.pow(1 - s.aggregate_pct / 100, H)) * 100);  // кумулятив за горизонт
     const cls = p > 70 ? "avoid" : p >= 30 ? "edge" : "buy";  // шкала: <30 зел · 30-70 жёлт · >70 красн (на кумулятив)
+    // дов.интервал hazard (red-team #1): 4 разнородных кризиса → ~×0.6…×1.45 вокруг точки
+    const pLo = Math.round((1 - Math.pow(1 - annual * 0.6 / 100, H)) * 100);
+    const pHi = Math.round((1 - Math.pow(1 - Math.min(60, annual * 1.45) / 100, H)) * 100);
     const when = (s.created_at || "").replace("T", " ");
     const scen = (s.scenarios || []).map(x => {
       const pp = Math.round(x.prob_pct || 0);
@@ -271,12 +274,12 @@ function renderShock(r) {
     host.innerHTML = `<button class="nwf-btn nwf-${cls}" id="shock-btn" title="Кумулятивная вероятность ШОКА за ${H} г (годовой hazard ${annual}%); меняется с горизонтом">
         <span class="dot"></span> ⚡ ШОК · ${p}% <span class="muted" style="font-weight:400">/${H}г</span></button>
       <div class="nwf-pop" id="shock-pop" hidden>
-        <div class="nwf-pop-head nwf-${cls}">Риск ШОКа · ${p}% за ${H} г <span class="muted" style="font-weight:400">(годовой ${annual}% / ${s.horizon || "12 мес"})</span>
+        <div class="nwf-pop-head nwf-${cls}">Риск ШОКа · ${p}% <span class="muted" style="font-weight:400">(${pLo}–${pHi}%)</span> за ${H} г <span class="muted" style="font-weight:400">· годовой ${annual}%</span>
           <a href="#" id="shock-analyze" title="прогнать заново" style="float:right;font-weight:400">↻</a></div>
         <div class="nwf-rows">${scen}</div>
         ${metrics}
         <p class="nwf-note">${glossarize(s.note || "")}</p>
-        <p class="shock-disc">Субъективная оценка Opus (не калиброванная), агрегат с дисконтом за корреляцию через общие драйверы. Две оси: P (вероятность) и урон (severity) — «вероятно но переживём» (нефть) ≠ «маловероятно но катастрофа» (война). Форвардный риск ≠ текущий ШОК-режим.</p>
+        <p class="shock-disc">⚠ КОНСЕНСУС-ПРОКСИ Opus (суждение по истории + риторике), НЕ независимый внешний якорь. hazard из 4 разнородных кризисов (2008/2014/2020/2022) → широкий дов.интервал (показан в скобках). Две оси: P (вероятность) и урон (severity) — «вероятно но переживём» (нефть) ≠ «маловероятно но катастрофа» (война). Форвардный риск ≠ текущий ШОК-режим.</p>
       </div>`;
   }
   const btn = document.getElementById("shock-btn");

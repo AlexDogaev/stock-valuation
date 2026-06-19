@@ -24,6 +24,10 @@ REGIME_P_SHOCK = {"NORMAL": 0.10, "RISK": 0.25, "SHOCK": 0.45}  # годовой
 WORLD_INFLATION = 0.03                                       # внешняя инфляция (прокси для базового дрейфа рубля)
 EQUITY_RISK_PREMIUM = 0.04                                   # реальная премия акций над ОФЗ (допущение, тюнится)
 SHOCK_HORIZON_MIN = 3                                        # шок-драг в сценарии включаем от 3 лет (Саша)
+# Мультипликативный дов.интервал hazard (red-team #1): 4 разнородных события → ~18-45% вокруг ~31%.
+HAZARD_CI = (0.6, 1.45)
+ADVISORY_NOTE = ("Шок/hazard/траектория — КОНСЕНСУС-ПРОКСИ Opus (суждение по истории + риторике), "
+                 "НЕ независимый внешний якорь. hazard из 4 разнородных кризисов → широкий интервал.")
 
 
 @dataclass
@@ -77,7 +81,16 @@ class MacroOutlook:
         """P(≥1 шок за горизонт H) = 1−(1−hazard)^H. За 20 лет ≈ почти точно (референс Саши)."""
         return 1.0 - (1.0 - self.shock.p) ** horizon
 
-    def equity_shock_drag(self, horizon: float) -> float:
+    def hazard_band(self) -> tuple[float, float]:
+        """Дов.интервал годового hazard (4 разнородных события → широкий, red-team #1)."""
+        return (round(self.shock.p * HAZARD_CI[0], 4), round(min(0.6, self.shock.p * HAZARD_CI[1]), 4))
+
+    def cumulative_shock_p_range(self, horizon: float) -> tuple[float, float]:
+        """Кумулятив P(шок) как ИНТЕРВАЛ (от hazard_lo до hazard_hi) — честная неопределённость."""
+        lo, hi = self.hazard_band()
+        return (round(1.0 - (1.0 - lo) ** horizon, 4), round(1.0 - (1.0 - hi) ** horizon, 4))
+
+    def equity_shock_drag(self, horizon: float, *, recovery: float | None = None) -> float:
         """Ожидаемый годовой РЕАЛЬНЫЙ драг акций от шоков, тайминг равновероятен по месяцам.
 
         Шок в месяце m: условная просадка D, за год восстанавливается доля r → перманентный
@@ -87,7 +100,7 @@ class MacroOutlook:
         if horizon < SHOCK_HORIZON_MIN:
             return 0.0
         D = abs(self.shock.equity_dd)
-        r = self.shock.recovery_1y
+        r = self.shock.recovery_1y if recovery is None else recovery   # recovery=0 → L-кризис (без отскока)
         p_m = self.shock.p / 12.0
         N = int(round(horizon * 12))
         ln_mult = 0.0
@@ -98,7 +111,7 @@ class MacroOutlook:
         return -(ln_mult / horizon)                              # годовой драг
 
     def real_return(self, asset: str, horizon: float, *, nominal: float | None = None,
-                    fx_ytm: float | None = None) -> dict:
+                    fx_ytm: float | None = None, recovery: float | None = None) -> dict:
         """Реальная доходность buy-and-hold за H (CAGR), с учётом инфляции и шока.
 
         asset: 'ofz' (фикс HtM: real=nominal−E[инфл], шок не бьёт — цена к номиналу, инфл.всплеск
@@ -114,7 +127,7 @@ class MacroOutlook:
         else:  # equity: база = ОФЗ-реал + премия; минус драг шоков (накопленный за горизонт)
             ofz_real = (nominal or 0.0) - e_infl
             base = ofz_real + EQUITY_RISK_PREMIUM
-            drag = self.equity_shock_drag(horizon)
+            drag = self.equity_shock_drag(horizon, recovery=recovery)
             res = {"base_real": round(base, 4), "shock_drag": round(drag, 4), "net_real": round(base - drag, 4)}
         # накопленная (total) реальная за весь горизонт: компаундинг годовой CAGR
         res["net_real_total"] = round((1 + res["net_real"]) ** horizon - 1, 4)
@@ -128,7 +141,10 @@ class MacroOutlook:
             "norm_years": round(self.norm_years, 2),
             "norm_source": self.norm_source,
             "p_shock": round(self.shock.p, 4),                                  # годовой hazard
+            "hazard_band": self.hazard_band(),                                  # дов.интервал hazard
             "p_shock_cum": round(self.cumulative_shock_p(self.horizon_years), 4),  # кумулятив за горизонт
+            "p_shock_cum_band": self.cumulative_shock_p_range(self.horizon_years),  # кумулятив как интервал
+            "advisory_note": ADVISORY_NOTE,
             "base_inflation_h": round(self.base_inflation(), 4),
             "e_inflation_h": round(self.e_inflation(), 4),
             "shock": {"infl_pp": round(self.shock.infl_pp, 4), "fx_pct": round(self.shock.fx_pct, 4),

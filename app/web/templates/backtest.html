@@ -33,7 +33,11 @@ async function run() {
       <div class="kv"><span class="k">Средняя ошибка</span><span class="v">${num(d.mean_error_pp,1)} п.п.</span></div>
       <div class="kv"><span class="k">Разброс (σ)</span><span class="v">${num(d.std_error_pp,1)} п.п.</span></div>
       <div class="kv"><span class="k">Попаданий (±5 п.п.)</span><span class="v">${pct(d.hit_rate)}</span></div>
-      <div class="kv"><span class="k">Вердикт</span><span class="v">${d.verdict}</span></div></div>`;
+      <div class="kv"><span class="k">Вердикт (калибровка)</span><span class="v">${d.verdict}</span></div>
+      <hr style="border:0;border-top:1px solid var(--hair);margin:10px 0">
+      <div class="kv"><span class="k">Ранг.корр прогноз↔факт</span><span class="v">${d.rank_corr!=null?num(d.rank_corr,2):"—"}</span></div>
+      <div class="kv"><span class="k">Дискриминация (верх−низ)</span><span class="v">${d.discrimination_pp!=null?num(d.discrimination_pp,1)+" п.п.":"—"}</span></div>
+      <div class="kv"><span class="k">Вердикт (СИГНАЛ)</span><span class="v">${d.signal_verdict||"—"}</span></div></div>`;
     document.getElementById("rows").innerHTML = d.cases.map(c => `
       <tr><td>${c.label}</td>
         <td class="num">${pct(c.predicted)}</td>

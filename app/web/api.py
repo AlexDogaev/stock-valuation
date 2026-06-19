@@ -75,6 +75,7 @@ class Settings(BaseModel):
     tax_rate: float | None = None
     tax_aware: int | None = None
     iis3: int | None = None
+    normal_pe: float | None = None
 
 
 @router.get("/settings")
@@ -118,6 +119,29 @@ def update_structural(secid: str, body: StructuralIn):
         data = body.model_dump()
         data.update(secid=secid.upper(), updated_by="user",
                     updated_at=datetime.now().isoformat(timespec="seconds"))
+        upsert(db, "structural", data, pk="secid")
+        res = engine.evaluate_issuer(db, secid)
+    return res
+
+
+class TailRiskIn(BaseModel):
+    """Обнуляющие РФ-риски (0 нет / 1 повышенный / 2 острый)."""
+    minority_risk: int = 0
+    expropriation_risk: int = 0
+    delisting_risk: int = 0
+    sanctions_risk: int = 0
+    liquidity_risk: int = 0
+
+
+@router.put("/issuers/{secid}/tail_risk")
+def update_tail_risk(secid: str, body: TailRiskIn):
+    """Отдельный апдейт обнуляющих рисков (не клобберит структурные баллы)."""
+    with get_db() as db:
+        exists = db.execute("SELECT 1 FROM issuers WHERE secid = ?", (secid.upper(),)).fetchone()
+        if not exists:
+            raise HTTPException(404, f"Эмитент {secid} не найден")
+        data = body.model_dump()
+        data.update(secid=secid.upper())
         upsert(db, "structural", data, pk="secid")
         res = engine.evaluate_issuer(db, secid)
     return res

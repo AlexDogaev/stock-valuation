@@ -63,6 +63,7 @@
       <th title="ОФЗ-фикс до погашения: real = YTM − E[инфл]; шок не бьёт (цена к номиналу)">ОФЗ-фикс</th>
       <th title="замещайка: real = FX-YTM + E[курс] − E[инфл]; девальвация в шоке в плюс">Замещайка</th>
       <th title="акции = ОФЗ-реал + премия − драг шоков (тайминг равновероятен по месяцам)">Акции IMOEX</th>
+      <th title="L-кризис: шок без отскока (recovery=0) — худший случай на длинном горизонте">Акции · L-шок</th>
     </tr></thead>
     <tbody id="sc-rows"></tbody>
   </table>
@@ -212,13 +213,17 @@ async function loadScenario() {
   const scCell = (x, title) => x
     ? `<span${title ? ` title="${title}"` : ""}>${pctSigned(x.net_real)} <span class="muted">· ${pctSigned(x.net_real_total)}</span></span>`
     : "—";
+  const pBand = (r) => r.p_shock_cum_band
+    ? `${pct(r.p_shock_cum)} <span class="muted">(${pct(r.p_shock_cum_band[0])}–${pct(r.p_shock_cum_band[1])})</span>`
+    : pct(r.p_shock_cum);
   document.getElementById("sc-rows").innerHTML = s.horizons.map(r => `<tr>
       <td>${r.horizon} лет</td>
-      <td>${pct(r.p_shock_cum)}</td>
+      <td>${pBand(r)}</td>
       <td>${pct(r.e_inflation)}</td>
       <td>${scCell(r.ofz)}</td>
       <td>${scCell(r.fx)}</td>
       <td>${scCell(r.equity, r.equity ? "драг шоков " + pct(r.equity.shock_drag) + "/год" : "")}</td>
+      <td>${scCell(r.equity_lstress, "L-кризис без отскока (recovery=0)")}</td>
     </tr>`).join("");
   const sh = s.outlook.shock, sec = s.sectoral || {}, inp = s.inputs || {};
   const secStr = Object.entries(sec).map(([k, v]) => `${k} ${pct(v)}`).join(", ");
@@ -226,7 +231,9 @@ async function loadScenario() {
     `<b>Профиль шока (калибровка 2014/2022):</b> просадка IMOEX ${pct(sh.equity_dd)} (${secStr}); ` +
     `₽ ${pctSigned(sh.fx_pct)}; КС +${pct(sh.ks_pp)}; инфляция +${pct(sh.infl_pp)}; восстановление ${pct(sh.recovery_1y)}/год. ` +
     `Допущения: премия акций +${pct(inp.erp)}, ОФЗ-YTM ${inp.long_ofz_ytm != null ? pct(inp.long_ofz_ytm) : "—"}, ` +
-    `FX-YTM ${inp.fx_ytm != null ? pct(inp.fx_ytm) : "—"}; тайминг шока равновероятен по месяцам.`;
+    `FX-YTM ${inp.fx_ytm != null ? pct(inp.fx_ytm) : "—"}; тайминг шока равновероятен по месяцам. ` +
+    `<br><b>P(шок) — интервал</b> (4 разнородных кризиса → широкий дов.интервал). ` +
+    (s.advisory_note ? `<br>⚠ ${s.advisory_note}` : "");
 }
 async function loadBonds() {
   document.getElementById("brows").innerHTML = `<tr><td colspan="10" class="muted">Загрузка с MOEX ISS…</td></tr>`;

@@ -459,6 +459,56 @@ def evaluate_issuer(db: sqlite3.Connection, secid: str, macro_frag: dict | None 
     }
 
 
+def screen_bonds(db: sqlite3.Connection) -> dict:
+    """Скринер облигаций (фаза 2 мультиассета): ОФЗ-кривая из самих ОФЗ → спред корпоратов →
+    PD из спреда → троичный сигнал (общий hurdle/инфляция/траектория КС, как у акций)."""
+    from app.data import moex_bonds as mb
+    from app.core import bonds as bmod, credit_pd
+    settings = get_settings(db)
+    e_infl = active_deflator_value(settings, db)
+    # Бонды = ЗАЩИТНЫЙ рукав: бар = бить инфляцию (real≥0) + кредит, НЕ +10% таргет атаки (акций).
+    # Буфер меньше (бонд контрактный, неопределённость ниже). PD_CAP — интерим кредит-фильтр по
+    # РЫНОЧНОЙ PD (отсекает junk); независимая PD (рейтинг/фундаментал) = Фаза 2b.
+    bond_hurdle, bond_buffer, PD_CAP = 0.0, 0.01, 0.10
+    rate_direction = "hold"
+    try:
+        from app.core import llm_macro
+        g = (llm_macro.get_rate_trajectory(db) or {}).get("grade", "") or ""
+        rate_direction = "cut" if "снижение" in g else ("hike" if "повышение" in g else "hold")
+    except Exception:  # noqa: BLE001
+        pass
+    try:
+        ofz = mb.fetch_bonds(mb.OFZ_BOARD)
+        corp = mb.fetch_bonds(mb.CORP_BOARD)
+    except Exception as e:  # noqa: BLE001 — без сети скринер не должен ронять сервис
+        return {"error": f"MOEX ISS недоступен: {type(e).__name__}", "bonds": [], "count": 0}
+
+    ofz_clean = [b for b in ofz if mb.is_sane(b, min_dur=0.25, ytm_lo=0.05, ytm_hi=0.30, min_trades=0)]
+    curve = mb.ofz_curve(ofz_clean)
+    out: list[dict] = []
+    for b in ofz_clean:
+        a = bmod.assess_bond(ytm=b["ytm"], e_inflation=e_infl, hurdle_real=bond_hurdle,
+                             buffer=bond_buffer, rate_direction=rate_direction, is_ofz=True)
+        out.append({**b, "type": "ОФЗ", "spread": None, "pd": 0.0, "real_ytm": a.real_ytm,
+                    "rate_signal": a.rate_signal, "credit_ok": True, "signal": a.signal})
+    corp_clean = sorted([b for b in corp if mb.is_sane(b, min_dur=0.5, ytm_lo=0.06, ytm_hi=0.40, min_trades=10)],
+                        key=lambda x: -x["num_trades"])[:70]
+    for b in corp_clean:
+        kbd = mb.curve_at(curve, b["duration_years"])
+        spread = (b["ytm"] - kbd) if kbd is not None else None
+        pd_m = credit_pd.pd_market(spread) if spread is not None else None
+        cred = pd_m is None or pd_m <= PD_CAP          # интерим: отсечь junk по рыночной PD
+        a = bmod.assess_bond(ytm=b["ytm"], e_inflation=e_infl, hurdle_real=bond_hurdle, buffer=bond_buffer,
+                             rate_direction=rate_direction, kbd_at_duration=kbd, credit_ok_override=cred)
+        out.append({**b, "type": "Корп", "spread": round(spread, 4) if spread is not None else None,
+                    "pd": round(pd_m, 4) if pd_m is not None else None, "real_ytm": a.real_ytm,
+                    "rate_signal": a.rate_signal, "credit_ok": a.credit_ok, "signal": a.signal})
+    out.sort(key=lambda x: (x["real_ytm"] is None, -(x["real_ytm"] or -99)))
+    return {"bonds": out, "count": len(out), "buy": sum(1 for b in out if b["signal"] == "ПОКУПАЙ"),
+            "ofz_curve": [[d, round(y, 4)] for d, y in curve], "rate_direction": rate_direction,
+            "e_inflation": round(e_infl, 4), "bond_hurdle": bond_hurdle}
+
+
 def generate_backtest(db: sqlite3.Connection, client, horizons=(1, 2, 3)) -> dict:
     """Backtest на истории MOEX (лист «Backtest»).
 

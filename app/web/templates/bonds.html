@@ -1,0 +1,71 @@
+{% extends "base.html" %}
+{% block head %}
+<style>
+  #btbl { margin-top: 6px; }
+  #btbl th, #btbl td { padding: 13px 15px; }
+  #btbl td:first-child { font-size: 15px; }
+  .btype { font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
+  .btype.ofz { color: var(--buy); }
+  .nocred { color: var(--avoid); font-size: 12px; }
+</style>
+{% endblock %}
+{% block content %}
+<div class="toolbar">
+  <div>
+    <h1>Облигации</h1>
+    <p class="sub">Защитный рукав: бар = бить инфляцию (real≥0) + кредит, не +10% таргет атаки. ОФЗ-кривая
+      строится из самих ОФЗ; спред корпората = YTM − кривая(дюр); PD из спреда (интерим, рейтинг/фундаментал — фаза 2b).</p>
+  </div>
+  <div class="actions"><button class="ghost" id="brefresh">↻ Обновить (MOEX ISS)</button></div>
+</div>
+<div id="bbanner" class="sub" style="margin:12px 0 0;padding:10px 14px;border-left:2px solid var(--hair);line-height:1.6"></div>
+<div class="panel" style="padding:0;overflow:hidden">
+  <table id="btbl">
+    <thead><tr>
+      <th>Бумага</th><th>Тип</th><th>YTM</th><th>Реал.YTM</th><th>Дюр, лет</th>
+      <th>Спред</th><th>PD рын.</th><th>Ставка</th><th>Сигнал</th>
+    </tr></thead>
+    <tbody id="brows"><tr><td colspan="9" class="muted">Загрузка с MOEX ISS…</td></tr></tbody>
+  </table>
+</div>
+<p class="sub" id="bmeta"></p>
+{% endblock %}
+{% block scripts %}
+<script>
+function bondRow(b) {
+  const sp = b.spread != null ? pctSigned(b.spread) : "—";
+  const pd = b.pd != null ? pct(b.pd) : "—";
+  const cred = b.credit_ok ? "" : ' <span class="nocred">кредит ✗</span>';
+  return `<tr>
+    <td>${b.name}${cred}</td>
+    <td><span class="btype ${b.type==='ОФЗ'?'ofz':''}">${b.type}</span></td>
+    <td class="num">${pct(b.ytm)}</td>
+    <td class="num">${pctSigned(b.real_ytm)}</td>
+    <td class="num">${num(b.duration_years,1)}${b.offer?' <span class="muted" title="оферта — yield-to-put">оф</span>':''}</td>
+    <td class="num">${sp}</td>
+    <td class="num">${pd}</td>
+    <td class="num"><span class="muted">${b.rate_signal}</span></td>
+    <td>${sigBadge(b.signal)}</td>`;
+}
+async function loadBonds() {
+  const d = await getJSON("/bonds");
+  const rows = document.getElementById("brows");
+  if (d.error) { rows.innerHTML = `<tr><td colspan="9" class="warn">${d.error}</td></tr>`; return; }
+  rows.innerHTML = d.bonds.map(bondRow).join("");
+  const c = d.ofz_curve || [];
+  const at = (yr) => { let best=null; for (const [dd,yy] of c) if (best===null || Math.abs(dd-yr)<Math.abs(best[0]-yr)) best=[dd,yy]; return best?pct(best[1]):"—"; };
+  const dirRu = {cut:"снижение КС", hike:"рост КС", hold:"удержание"}[d.rate_direction] || d.rate_direction;
+  document.getElementById("bbanner").textContent =
+    `Кривая ОФЗ ~1г ${at(1)} · ~5л ${at(5)} · ~10л ${at(10)}. Ставочный режим: ${dirRu} → длинный фикс ` +
+    (d.rate_direction==='cut'?"в плюс (capital gain).":"нейтрально/встречно.") +
+    ` E[инфляция] ${pct(d.e_inflation)}, защитный бар real≥0.`;
+  document.getElementById("bmeta").textContent =
+    `${d.count} бумаг (ОФЗ + ликвидные корпораты). ${d.buy} ПОКУПАЙ. PD junk-cap 10% (интерим).`;
+}
+document.getElementById("brefresh").addEventListener("click", async (e) => {
+  e.target.disabled = true; e.target.textContent = "Обновляю…";
+  try { await loadBonds(); } finally { e.target.disabled = false; e.target.textContent = "↻ Обновить (MOEX ISS)"; }
+});
+loadBonds();
+</script>
+{% endblock %}

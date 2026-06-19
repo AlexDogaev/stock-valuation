@@ -73,6 +73,11 @@ def portfolio_page(request: Request):
     return _page(request, "portfolio.html", title="Портфель")
 
 
+@app.get("/bonds", response_class=HTMLResponse)
+def bonds_page(request: Request):
+    return _page(request, "bonds.html", title="Облигации")
+
+
 @app.get("/settings", response_class=HTMLResponse)
 def settings_page(request: Request):
     return _page(request, "settings.html", title="Настройки")

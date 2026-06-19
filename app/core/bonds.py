@@ -48,13 +48,17 @@ def assess_bond(
     lgd: float = LGD_DEFAULT,
     is_ofz: bool = False,
     risk_premium: float = 0.01,
+    credit_ok_override: bool | None = None,
 ) -> BondAssessment:
-    """Троичный сигнал по облигации. is_ofz → кредитный фильтр пройден (безриск)."""
+    """Троичный сигнал по облигации. is_ofz → безриск. credit_ok_override — внешний кредит-вердикт
+    (когда PD из НЕЗАВИСИМОГО источника, не из спреда: market-PD vs спред — круговая логика)."""
     real_ytm = ytm - e_inflation
     spread = None if (is_ofz or kbd_at_duration is None) else ytm - kbd_at_duration
     rsig = rate_signal_for(rate_direction=rate_direction, floater=floater)
     if is_ofz:
         cred = True
+    elif credit_ok_override is not None:
+        cred = credit_ok_override
     elif spread is None:
         cred = False
     else:

@@ -24,6 +24,13 @@ def list_issuers():
     return {"disclaimer": DISCLAIMER, "count": len(rows), "issuers": rows, "summary": summary}
 
 
+@router.get("/bonds")
+def list_bonds():
+    """Скринер облигаций (мультиассет фаза 2): ОФЗ + корпораты с MOEX ISS, троичный сигнал."""
+    with get_db() as db:
+        return engine.screen_bonds(db)
+
+
 @router.get("/issuers/{secid}")
 def get_issuer(secid: str):
     with get_db() as db:

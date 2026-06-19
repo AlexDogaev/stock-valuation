@@ -12,7 +12,7 @@ def test_period_for_year():
 def test_aging_flat_plateau():
     # §7 поправка: старение РОВНОЕ ~+2пп (плато), НЕ восходящий (механизмы в противофазе)
     ds = [tectonic_g("Медицина", "DOMESTIC", year=y).sector_delta for y in (2027, 2033, 2038, 2044)]
-    assert all(d > 0.015 for d in ds)           # сильный попутный всюду (~+2пп)
+    assert all(d >= 0.014 for d in ds)          # сильный попутный всюду (~+1.5-1.8пп, NOTES_3 скромнее)
     assert max(ds) - min(ds) <= 0.006           # плато, узкий разброс
 
 

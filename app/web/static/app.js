@@ -256,7 +256,7 @@ function renderShock(r) {
     const hzSel = document.getElementById("g-horizon");
     const H = hzSel ? (parseInt(hzSel.value) || 1) : 1;
     const p = Math.round((1 - Math.pow(1 - s.aggregate_pct / 100, H)) * 100);  // кумулятив за горизонт
-    const cls = shockCls(annual);     // цвет — по ГОДОВОЙ интенсивности (кумулятив за 20л всегда ~100%)
+    const cls = p > 70 ? "avoid" : p >= 30 ? "edge" : "buy";  // шкала: <30 зел · 30-70 жёлт · >70 красн (на кумулятив)
     const when = (s.created_at || "").replace("T", " ");
     const scen = (s.scenarios || []).map(x => {
       const pp = Math.round(x.prob_pct || 0);

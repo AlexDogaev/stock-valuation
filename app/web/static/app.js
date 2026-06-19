@@ -252,8 +252,11 @@ function renderShock(r) {
       <div class="nwf-pop" id="shock-pop" hidden><div class="nwf-pop-head nwf-edge">Риск ШОКа</div>
         <div class="nwf-analysis muted">Оценка Опуса не сгенерирована. <a href="#" id="shock-analyze">прогнать</a></div></div>`;
   } else {
-    const p = Math.round(s.aggregate_pct);
-    const cls = shockCls(p);
+    const annual = Math.round(s.aggregate_pct);
+    const hzSel = document.getElementById("g-horizon");
+    const H = hzSel ? (parseInt(hzSel.value) || 1) : 1;
+    const p = Math.round((1 - Math.pow(1 - s.aggregate_pct / 100, H)) * 100);  // кумулятив за горизонт
+    const cls = shockCls(annual);     // цвет — по ГОДОВОЙ интенсивности (кумулятив за 20л всегда ~100%)
     const when = (s.created_at || "").replace("T", " ");
     const scen = (s.scenarios || []).map(x => {
       const pp = Math.round(x.prob_pct || 0);
@@ -265,10 +268,10 @@ function renderShock(r) {
     const mx = (v) => v != null ? Math.round(v) + "%" : "—";
     const metrics = `<div class="nwf-alloc">P(хотя бы один): <b>${p}%</b> с корреляцией vs ${mx(s.independent_pct)} наивно ·
         ожид. урон IMOEX <b>${mx(s.expected_damage_pct)}</b> (P×severity) · за 3 года <b>${mx(s.p_horizon3_pct)}</b></div>`;
-    host.innerHTML = `<button class="nwf-btn nwf-${cls}" id="shock-btn" title="Форвардная вероятность ШОКА (оценка Opus)">
-        <span class="dot"></span> ⚡ ШОК · ${p}%</button>
+    host.innerHTML = `<button class="nwf-btn nwf-${cls}" id="shock-btn" title="Кумулятивная вероятность ШОКА за ${H} г (годовой hazard ${annual}%); меняется с горизонтом">
+        <span class="dot"></span> ⚡ ШОК · ${p}% <span class="muted" style="font-weight:400">/${H}г</span></button>
       <div class="nwf-pop" id="shock-pop" hidden>
-        <div class="nwf-pop-head nwf-${cls}">Риск ШОКа · ${p}% <span class="muted" style="font-weight:400">/ ${s.horizon || "12 мес"}</span>
+        <div class="nwf-pop-head nwf-${cls}">Риск ШОКа · ${p}% за ${H} г <span class="muted" style="font-weight:400">(годовой ${annual}% / ${s.horizon || "12 мес"})</span>
           <a href="#" id="shock-analyze" title="прогнать заново" style="float:right;font-weight:400">↻</a></div>
         <div class="nwf-rows">${scen}</div>
         ${metrics}

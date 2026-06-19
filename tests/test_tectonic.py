@@ -1,4 +1,4 @@
-"""Тектоническая рама (§1-7): период, секторный множитель, маршрутизация по валюте."""
+"""Тектоническая рама (§1-7) + калибровка §7 NOTES_2: период, факторы, маршрутизация."""
 from app.core.tectonic import tectonic_g, period_for_year, CORRIDOR_HI, CORRIDOR_LO
 
 
@@ -9,35 +9,41 @@ def test_period_for_year():
     assert period_for_year(2044) == "P4"
 
 
-def test_medicine_domestic_ascending():
-    # старение → восходящий профиль (P3 сильнее P1) — кейс MDMG
-    p1 = tectonic_g("Медицина", "DOMESTIC", year=2027)
-    p3 = tectonic_g("Медицина", "DOMESTIC", year=2037)
-    assert p1.routed and p1.sector_delta > 0
-    assert p3.sector_delta > p1.sector_delta          # восходящий
-    assert p1.peak_period in ("P3", "P4")
+def test_aging_flat_plateau():
+    # §7 поправка: старение РОВНОЕ ~+2пп (плато), НЕ восходящий (механизмы в противофазе)
+    ds = [tectonic_g("Медицина", "DOMESTIC", year=y).sector_delta for y in (2027, 2033, 2038, 2044)]
+    assert all(d > 0.015 for d in ds)           # сильный попутный всюду (~+2пп)
+    assert max(ds) - min(ds) <= 0.006           # плато, узкий разброс
+
+
+def test_mdmg_subsector_ascending():
+    # MDMG = под-сегмент «Медицина_роды»: дно P1 (родовспоможение−), смягчение к P3 → ВОСХОДЯЩИЙ
+    p1 = tectonic_g("Медицина", "DOMESTIC", year=2027, secid="MDMG").sector_delta
+    p3 = tectonic_g("Медицина", "DOMESTIC", year=2037, secid="MDMG").sector_delta
+    assert p3 > p1
+    # и ниже общей медицины в P1 (роды тянут вниз)
+    assert p1 < tectonic_g("Медицина", "DOMESTIC", year=2027).sector_delta
 
 
 def test_exporter_routed_zero():
-    # РФ-демография в спрос экспортёра не идёт
     r = tectonic_g("Нефтегаз", "EXPORTER", year=2027)
-    assert r.routed is False
-    assert r.sector_delta == 0.0
+    assert r.routed is False and r.sector_delta == 0.0
 
 
-def test_domestic_headwind_negative():
-    # детское: рождаемость − (дно P1)
+def test_child_headwind_acute_clamped():
+    # детское: рождаемость −2.5пп в P1 → клампится к полу коридора −1.5пп
     r = tectonic_g("Детское", "DOMESTIC", year=2027)
-    assert r.sector_delta < 0
+    assert r.sector_delta == CORRIDOR_LO
 
 
-def test_unknown_sector_neutral():
-    r = tectonic_g("Криптомайнинг", "DOMESTIC", year=2027)
-    assert r.sector_delta == 0.0 and r.routed
+def test_bank_labor_cog_tailwind():
+    # банки: ИИ режет клерикал (женский бэк-офис) + сбережения пожилых → попутный
+    assert tectonic_g("Банк", "DOMESTIC", year=2027).sector_delta > 0
 
 
 def test_corridor_bounds():
-    for sec in ("Медицина", "Нефтегаз", "Детское"):
+    for sec in ("Медицина", "Детское", "Девелопмент", "Банк"):
         for y in (2027, 2033, 2038, 2044):
-            d = tectonic_g(sec, "DOMESTIC", year=y).sector_delta
-            assert CORRIDOR_LO <= d <= CORRIDOR_HI
+            for sid in (None, "MDMG"):
+                d = tectonic_g(sec, "DOMESTIC", year=y, secid=sid).sector_delta
+                assert CORRIDOR_LO <= d <= CORRIDOR_HI

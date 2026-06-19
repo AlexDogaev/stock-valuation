@@ -177,7 +177,7 @@ def evaluate_issuer(db: sqlite3.Connection, secid: str, macro_frag: dict | None 
     # тектоническая поправка к g (рама §1-7): сектор × ТЕКУЩАЯ пятилетка, маршрут по валюте.
     # EXPORTER → 0 (РФ-демография в их спрос не идёт). Коридор −1.5…+3пп (намеренно скромен —
     # тектоника двигает g медленно; щедрый множитель задвоил бы то, что рынок уже знает).
-    tect = tectonic.tectonic_g(r["sector"], currency_profile, year=date.today().year)
+    tect = tectonic.tectonic_g(r["sector"], currency_profile, year=date.today().year, secid=r["secid"])
     g_eff = g_base + tect.sector_delta
     macro_delta = macro_hurdle_delta(macro_frag["F"], qmark, currency_profile)
     hurdle_eff = settings["hurdle"] + macro_delta
@@ -317,6 +317,16 @@ def evaluate_issuer(db: sqlite3.Connection, secid: str, macro_frag: dict | None 
             f"(защита рва, НЕ в g); не переоценивать. Расщепление: «волна придёт» детерминир., кто/когда — гадание.")
     if r["is_enabler"]:
         warnings.append("ENABLER (инфраструктура-рельса): рента устойчивее звёзд конкретной волны — «лопаты в золотую лихорадку».")
+    # госнавес-риск перераспределения на дивиденды (§7 NOTES_2) — флаг на высокодивидендные
+    if (r["payout"] or 0) >= 0.4:
+        warnings.append(
+            "Госнавес-риск перераспределения (§7): цель Джини 0.37/2030 + ИИ-неравенство → риск роста "
+            "налогов на капитал/дивиденды/прибыль (введён прогрессивный НДФЛ-2025). Прямой вычет из "
+            "дивдоходности при реализации — держать как риск-флаг на дивидендную историю (политически реверсивно).")
+    if r["sector"] == "Ритейл":
+        warnings.append(
+            "Потребительский барбелл (§7): поляризация доходов (КС-процикличная) → премиум+жёсткий дискаунтер "
+            "попутны, середина вымывается. МУЛЬТИФОРМАТ (X5: Чижик+у-дома+Перекрёсток) выигрывает с обоих концов.")
     _felt = settings.get("felt_inflation") or DEFAULTS["felt_inflation"]
     _term = terminal_inflation(settings, db)
     _yrs = settings.get("forecast_years") or FORECAST_YEARS

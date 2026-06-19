@@ -257,6 +257,8 @@ def init_db() -> None:
         _ensure_column(db, "user_settings", "tax_aware", "INTEGER DEFAULT 1")    # сигнал на посленалоговой основе
         _ensure_column(db, "user_settings", "iis3", "INTEGER DEFAULT 0")         # обёртка ИИС-3
         _ensure_column(db, "financials", "currency_profile", "TEXT DEFAULT 'MIXED'")  # EXPORTER|DOMESTIC|MIXED (#11)
+        _ensure_column(db, "structural", "moat_risk", "INTEGER DEFAULT 0")    # уязвимость рва к дизрупции 0/1/2 (§4,9)
+        _ensure_column(db, "structural", "is_enabler", "INTEGER DEFAULT 0")   # ENABLER-рельса (рента устойчивее) (§4)
         _ensure_column(db, "shock_risk", "expected_damage_pct", "REAL")  # Σ P×severity (#15)
         _ensure_column(db, "shock_risk", "independent_pct", "REAL")      # наивная 1−∏(1−p)
         _ensure_column(db, "shock_risk", "p_horizon3_pct", "REAL")       # P за 3 года (горизонт решения)

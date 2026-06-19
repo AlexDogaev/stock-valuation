@@ -276,6 +276,20 @@ def put_urals_point(body: UralsPointIn):
     return add_urals_point(body.month, body.urals)
 
 
+# ── причинный граф (§10): query-only, в живой сигнал НЕ входит ──
+@router.get("/causal")
+def causal_nodes():
+    from app.core import causal_graph
+    return {"nodes": causal_graph.nodes(),
+            "note": "Прогон узла: GET /api/causal/{node}. Класс B, query-only (§10)."}
+
+
+@router.get("/causal/{node}")
+def causal_node(node: str):
+    from app.core import causal_graph
+    return causal_graph.run_node(node)
+
+
 class MacroContextIn(BaseModel):
     context_md: str
     source: str | None = None

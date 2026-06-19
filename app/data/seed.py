@@ -61,6 +61,9 @@ STRUCT = {
 # класс B из базы знаний эмитентов: путь монетизации доказан / платформенный критерий
 MONETIZATION_PROVEN = {"OZON", "T", "X5", "SBER", "MDMG"}
 PLATFORM = {"OZON"}   # ядро loss-leader, монетизирует экосистема (§3)
+# §4/§9: уязвимость рва к ИИ/дизрупции (0/1/2) — фактор РИСКА, не в g
+MOAT_RISK = {"HEAD": 2}   # ИИ убивает white-collar-рекрутинг (ров под прямой дизрупцией)
+ENABLER = set()           # чистых рельс (полупроводники/облако/ЦОД) в текущей вселенной нет
 
 # финансы (уровень 2) где есть в Excel: secid → dict
 FIN = {
@@ -137,19 +140,21 @@ def seed_static() -> dict:
             ), pk="secid")
             mp = 1 if secid in MONETIZATION_PROVEN else 0
             pf = 1 if secid in PLATFORM else 0
+            mr = MOAT_RISK.get(secid, 0)
+            en = 1 if secid in ENABLER else 0
             if secid in STRUCT:
                 m, d, t, r, de, go, note = STRUCT[secid]
                 upsert(db, "structural", dict(
                     secid=secid, moat=m, disruption=d, tam=t, regulation=r,
                     demo=de, gosnaves=go, mult_seed=mult, note=note,
-                    monetization_proven=mp, is_platform=pf,
+                    monetization_proven=mp, is_platform=pf, moat_risk=mr, is_enabler=en,
                     updated_by="seed", updated_at=now,
                 ), pk="secid")
             else:
                 upsert(db, "structural", dict(
                     secid=secid, moat=0, disruption=0, tam=0, regulation=0,
                     demo=0, gosnaves=0, mult_seed=mult,
-                    monetization_proven=mp, is_platform=pf,
+                    monetization_proven=mp, is_platform=pf, moat_risk=mr, is_enabler=en,
                     note="seed: множитель из ТОП-25, баллы не детализированы",
                     updated_by="seed", updated_at=now,
                 ), pk="secid")

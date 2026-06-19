@@ -8,10 +8,11 @@
 from __future__ import annotations
 
 import sqlite3
+from datetime import date
 from typing import Any
 
 from app.config import FORECAST_YEARS, DEFAULTS
-from app.core import valuation, structural, classify, rate, quality_markers, decision, tax
+from app.core import valuation, structural, classify, rate, quality_markers, decision, tax, tectonic
 from app.data.db import get_db, get_settings, get_macro, roic_years
 
 
@@ -121,6 +122,7 @@ def evaluate_issuer(db: sqlite3.Connection, secid: str, macro_frag: dict | None 
                   f.is_rentier, f.is_resource, f.net_profit, f.source AS fin_source, f.currency_profile,
                   s.moat, s.disruption, s.tam, s.regulation, s.demo, s.gosnaves,
                   s.mult_seed, s.note AS struct_note, s.monetization_proven, s.is_platform,
+                  s.moat_risk, s.is_enabler,
                   f.needs_review
            FROM issuers i
            LEFT JOIN market_data m ON m.secid = i.secid
@@ -172,6 +174,11 @@ def evaluate_issuer(db: sqlite3.Connection, secid: str, macro_frag: dict | None 
     if macro_frag is None:
         macro_frag = macro_fragility(db)
     currency_profile = r["currency_profile"] or "MIXED"
+    # тектоническая поправка к g (рама §1-7): сектор × ТЕКУЩАЯ пятилетка, маршрут по валюте.
+    # EXPORTER → 0 (РФ-демография в их спрос не идёт). Коридор −1.5…+3пп (намеренно скромен —
+    # тектоника двигает g медленно; щедрый множитель задвоил бы то, что рынок уже знает).
+    tect = tectonic.tectonic_g(r["sector"], currency_profile, year=date.today().year)
+    g_eff = g_base + tect.sector_delta
     macro_delta = macro_hurdle_delta(macro_frag["F"], qmark, currency_profile)
     hurdle_eff = settings["hurdle"] + macro_delta
 
@@ -181,7 +188,7 @@ def evaluate_issuer(db: sqlite3.Connection, secid: str, macro_frag: dict | None 
                            asset_premium=asset_premium).r
 
     fr = valuation.full_return(
-        div_yield=div_yield_signal, g_base=g_base, compression=compression,
+        div_yield=div_yield_signal, g_base=g_eff, compression=compression,
         structural_mult=mult, deflator=deflator,
         hurdle=hurdle_eff, buffer=settings["buffer"],
         regime=settings["regime"], r=r_req,
@@ -299,6 +306,17 @@ def evaluate_issuer(db: sqlite3.Connection, secid: str, macro_frag: dict | None 
             "Экспортёр (выручка в валюте): девальвация в плюс — штраф макро снижен, в RISK ДЕРЖАТЬ как хедж."
             if currency_profile == "EXPORTER" else
             "Внутреннее имя: нет валютного хеджа — полный штраф макро, в RISK режут первым.")
+    if abs(tect.sector_delta) >= 0.003:
+        warnings.append(
+            f"Тектоника (рама §1-7): {tect.note}. g скорректирован {tect.sector_delta*100:+.1f}пп; "
+            f"базовый g рынка {tect.g_market_base*100:.1f}% реальн. ({tect.period}). NB §2: демография — "
+            f"top-down, per-эмитентный demo-балл должен быть РЕЗИДУАЛЬНЫМ (открытая калибровка §13).")
+    if (r["moat_risk"] or 0) >= 1:
+        warnings.append(
+            f"Уязвимость рва к дизрупции (§4/§9, уровень {r['moat_risk']}/2): технология — фактор РИСКА "
+            f"(защита рва, НЕ в g); не переоценивать. Расщепление: «волна придёт» детерминир., кто/когда — гадание.")
+    if r["is_enabler"]:
+        warnings.append("ENABLER (инфраструктура-рельса): рента устойчивее звёзд конкретной волны — «лопаты в золотую лихорадку».")
     _felt = settings.get("felt_inflation") or DEFAULTS["felt_inflation"]
     _term = terminal_inflation(settings, db)
     _yrs = settings.get("forecast_years") or FORECAST_YEARS
@@ -387,6 +405,7 @@ def evaluate_issuer(db: sqlite3.Connection, secid: str, macro_frag: dict | None 
             "multiplier": mult, "detailed": detailed,
             "monetization_proven": bool(r["monetization_proven"]),
             "is_platform": bool(r["is_platform"]),
+            "moat_risk": r["moat_risk"] or 0, "is_enabler": bool(r["is_enabler"]),
             "note": r["struct_note"], "warnings": struct_res.warnings,
         },
         "calc": {
@@ -414,6 +433,9 @@ def evaluate_issuer(db: sqlite3.Connection, secid: str, macro_frag: dict | None 
                       "deval_score": macro_frag["deval_score"], "shock_pct": macro_frag["shock_pct"]},
         "needs_review": bool(r["needs_review"]),
         "currency_profile": currency_profile,
+        "tectonic": {"period": tect.period, "g_market_base": tect.g_market_base,
+                     "sector_delta": tect.sector_delta, "routed": tect.routed,
+                     "peak_period": tect.peak_period, "note": tect.note},
         "real_return": eff_real,
         "classification": classification,
         "mature": mature,

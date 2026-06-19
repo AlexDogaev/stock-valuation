@@ -83,3 +83,26 @@ def test_inflation_to_maturity_glides_to_terminal():
 
 def test_inflation_to_maturity_flat_when_no_terminal():
     assert inflation_to_maturity(0.145, None, 10) == 0.145    # нет терминала → плоско = felt
+
+
+# ── макро-прогноз (верхний слой: инфляция + шок, дерево) ───────────────────────
+def _outlook(p=0.2):
+    from app.core.macro_outlook import MacroOutlook, ShockVector
+    sv = ShockVector(p=p, infl_pp=0.10, fx_pct=0.25, ks_pp=0.07, equity_dd=-0.30)
+    return MacroOutlook(horizon_years=3, felt=0.14, terminal=0.06, shock=sv)
+
+
+def test_outlook_shock_lifts_inflation_more_for_short():
+    o = _outlook()
+    assert o.e_inflation(1) > o.base_inflation(1)             # шок поднимает E[инфляцию]
+    short_add = o.e_inflation(1) - o.base_inflation(1)
+    long_add = o.e_inflation(10) - o.base_inflation(10)
+    assert short_add > long_add                              # короткая бумага полнее в окне шока
+
+
+def test_outlook_fx_scenarios_tree():
+    o = _outlook()
+    sc = o.fx_scenarios()
+    assert len(sc) == 2 and abs(sum(p for p, _ in sc) - 1.0) < 1e-9   # дерево база+шок, веса=1
+    assert sc[1][1] > sc[0][1]                               # девальвация в шоке > базового дрейфа
+    assert sc[0][1] < o.e_fx() < sc[1][1]                    # E между ветками

@@ -262,6 +262,10 @@ def init_db() -> None:
         _ensure_column(db, "shock_risk", "expected_damage_pct", "REAL")  # Σ P×severity (#15)
         _ensure_column(db, "shock_risk", "independent_pct", "REAL")      # наивная 1−∏(1−p)
         _ensure_column(db, "shock_risk", "p_horizon3_pct", "REAL")       # P за 3 года (горизонт решения)
+        # шок-ВЕКТОР по факторам (макро-прогноз: шок влияет на ВСЕ классы, не только IMOEX)
+        _ensure_column(db, "shock_risk", "shock_infl_pp", "REAL")        # +пп к инфляции в шоке
+        _ensure_column(db, "shock_risk", "shock_fx_pct", "REAL")         # девальвация рубля в шоке, %
+        _ensure_column(db, "shock_risk", "shock_ks_pp", "REAL")          # +пп к КС в шоке
         # для маркеров качества (§2-4 плана автономности)
         _ensure_column(db, "financials", "proven_roic_years", "INTEGER")  # экспертная ретроспектива
         _ensure_column(db, "financials", "needs_review", "INTEGER DEFAULT 0")  # авто-флаг пересмотра

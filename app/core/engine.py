@@ -465,11 +465,11 @@ def screen_bonds(db: sqlite3.Connection) -> dict:
     from app.data import moex_bonds as mb
     from app.core import bonds as bmod, credit_pd
     settings = get_settings(db)
-    # СРОЧНАЯ СТРУКТУРА ИНФЛЯЦИИ: у каждой бумаги real_YTM = nominal_YTM − инфляция за ЕЁ срок
-    # (не один дефлятор на всех). Короткая видит текущую высокую инфляцию, длинная — терминал.
-    felt = settings.get("felt_inflation")
-    felt = felt if felt is not None else DEFAULTS["felt_inflation"]
-    terminal_infl = terminal_inflation(settings, db)
+    years = settings.get("forecast_years") or FORECAST_YEARS
+    # ВЕРХНИЙ СЛОЙ: макро-прогноз = инфляция-база (срочная структура) + риск шока (вектор).
+    # От E[инфляция|срок] считаются все реальные доходности; шок-ветка двигает и инфляцию.
+    from app.core import macro_outlook as mo
+    outlook = mo.build_outlook(db, years)
     # Бонды = ЗАЩИТНЫЙ рукав: бар = бить инфляцию (real≥0) + кредит, НЕ +10% таргет атаки (акций).
     # Буфер меньше (бонд контрактный, неопределённость ниже). PD_CAP — интерим кредит-фильтр по
     # РЫНОЧНОЙ PD (отсекает junk); независимая PD (рейтинг/фундаментал) = Фаза 2b.
@@ -486,7 +486,6 @@ def screen_bonds(db: sqlite3.Connection) -> dict:
     # ПОДЧИНЕНИЕ ОБЩЕЙ МОДЕЛИ: те же ФНБ/шок-режим + carry по траектории КС, что и у акций.
     frag = macro_fragility(db)
     stress = 1.0 + 0.5 * frag["F"]               # кредит ухудшается в хрупком макро (F∈[0,1] → до ×1.5)
-    years = settings.get("forecast_years") or FORECAST_YEARS
     cur_ks = (get_macro(db) or {}).get("key_rate") or 0.145
     from app.core import carry as carrymod
     carry_val = carrymod.carry_rate(cur_ks, (tr or {}).get("terminal_ks"), years)
@@ -504,7 +503,7 @@ def screen_bonds(db: sqlite3.Connection) -> dict:
     out: list[dict] = []
     for b in ofz_clean:
         is_lk = b["coupon_type"] == "Линкер"   # у линкера YTM УЖЕ реальный → не вычитать инфляцию
-        infl_m = 0.0 if is_lk else valuation.inflation_to_maturity(felt, terminal_infl, b["duration_years"])
+        infl_m = 0.0 if is_lk else outlook.e_inflation(b["duration_years"])   # E[инфл|срок] с учётом шока
         a = bmod.assess_bond(ytm=b["ytm"], e_inflation=infl_m, hurdle_real=bond_hurdle,
                              buffer=bond_buffer, rate_direction=rate_direction,
                              floater=(b["coupon_type"] == "Флоат"), is_ofz=True)
@@ -520,7 +519,7 @@ def screen_bonds(db: sqlite3.Connection) -> dict:
         pd_raw = credit_pd.pd_market(spread) if spread is not None else None
         pd_ann = min((pd_raw or 0.0) * stress, 0.99)   # годовая PD под текущим макро-режимом (стресс)
         cred = pd_raw is None or pd_ann <= PD_CAP       # интерим: отсечь junk по (стресс.) PD
-        infl_m = 0.0 if is_lk else valuation.inflation_to_maturity(felt, terminal_infl, b["duration_years"])
+        infl_m = 0.0 if is_lk else outlook.e_inflation(b["duration_years"])   # E[инфл|срок] с учётом шока
         a = bmod.assess_bond(ytm=b["ytm"], e_inflation=infl_m, hurdle_real=bond_hurdle,
                              buffer=bond_buffer, rate_direction=rate_direction,
                              floater=(b["coupon_type"] == "Флоат"), kbd_at_duration=kbd, credit_ok_override=cred)
@@ -533,23 +532,20 @@ def screen_bonds(db: sqlite3.Connection) -> dict:
     out.sort(key=lambda x: (x["risk_adj_yield"] is None, -(x.get("risk_adj_yield") or -99)))  # по реал. с уч. риска
     return {"bonds": out, "count": len(out), "buy": sum(1 for b in out if b["signal"] == "ПОКУПАЙ"),
             "ofz_curve": [[d, round(y, 4)] for d, y in curve], "rate_direction": rate_direction,
-            "e_inflation_now": round(felt, 4), "e_inflation_terminal": (round(terminal_infl, 4) if terminal_infl is not None else None),
-            "infl_norm_years": valuation.INFLATION_NORM_YEARS, "bond_hurdle": bond_hurdle,
+            "e_inflation_now": round(outlook.felt, 4),
+            "e_inflation_terminal": (round(outlook.terminal, 4) if outlook.terminal is not None else None),
+            "infl_norm_years": valuation.INFLATION_NORM_YEARS, "outlook": outlook.as_dict(), "bond_hurdle": bond_hurdle,
             "carry": round(carry_val, 4), "regime": frag["regime"], "macro_F": round(frag["F"], 3),
             "current_ks": round(cur_ks, 4), "terminal_ks": (tr or {}).get("terminal_ks"),
             "horizon_years": years}
 
 
-# Курсовое распределение (год), смещение к ослаблению рубля (структурный взгляд ФНБ/нефть).
-# Интерим-дефолт; редактируемые сценарии — следующий шаг (как felt_inflation).
-FX_SCENARIOS = [(0.45, 0.06), (0.30, 0.18), (0.25, -0.08)]   # E[курс] ≈ +6.1%/год
-
-
 def screen_fx(db: sqlite3.Connection) -> dict:
     """Валютная секция (фаза 2 мультиассета): замещайки/юаневые бонды через fx.assess_fx.
+    Курс-сценарии берутся из ВЕРХНЕГО прогноза (база-дрейф + ветка шока), не хардкод.
     E[отдача,₽] = FX-YTM + E[курс по распределению] − carry (избыток над рублёвой парковкой в ОФЗ)."""
     from app.data import moex_bonds as mb
-    from app.core import fx as fxmod, carry as carrymod
+    from app.core import fx as fxmod, carry as carrymod, macro_outlook as mo
     settings = get_settings(db)
     years = settings.get("forecast_years") or FORECAST_YEARS
     cur_ks = (get_macro(db) or {}).get("key_rate") or 0.145
@@ -560,6 +556,9 @@ def screen_fx(db: sqlite3.Connection) -> dict:
     except Exception:  # noqa: BLE001
         pass
     carry_val = carrymod.carry_rate(cur_ks, (tr or {}).get("terminal_ks"), years)
+    outlook = mo.build_outlook(db, years)
+    scenarios = outlook.fx_scenarios()           # [(1−p, базовый дрейф), (p, девальвация в шоке)]
+    e_fx = outlook.e_fx()
     try:
         fxb = mb.fetch_bonds(mb.CORP_BOARD, fx=True) + mb.fetch_bonds(mb.OFZ_BOARD, fx=True)
     except Exception as e:  # noqa: BLE001
@@ -567,10 +566,9 @@ def screen_fx(db: sqlite3.Connection) -> dict:
     # FX-доходности ниже рублёвых (в валюте бумаги): диапазон 2–20%, ликвидность скромнее
     clean = sorted([b for b in fxb if mb.is_sane(b, min_dur=0.5, ytm_lo=0.02, ytm_hi=0.20, min_trades=3)
                     and b["coupon_type"] in mb.CLASSIC], key=lambda x: -x["num_trades"])[:60]
-    e_fx = sum(p * m for p, m in FX_SCENARIOS) / (sum(p for p, _ in FX_SCENARIOS) or 1.0)
     out: list[dict] = []
     for b in clean:
-        fa = fxmod.assess_fx(scenarios=FX_SCENARIOS, carry=carry_val, hurdle=0.0, buffer=0.01,
+        fa = fxmod.assess_fx(scenarios=scenarios, carry=carry_val, hurdle=0.0, buffer=0.01,
                              coupon=b["ytm"], has_coupon_analog=True)   # купонный инструмент → не доминируем
         out.append({**b, "ytm_fx": b["ytm"], "e_fx_move": fa.e_fx_move,
                     "e_return": fa.e_return,                            # избыток над carry
@@ -578,8 +576,8 @@ def screen_fx(db: sqlite3.Connection) -> dict:
                     "signal": fa.signal})
     out.sort(key=lambda x: -x["e_return"])
     return {"bonds": out, "count": len(out), "buy": sum(1 for b in out if b["signal"] == "ПОКУПАЙ"),
-            "carry": round(carry_val, 4), "e_fx": round(e_fx, 4), "scenarios": FX_SCENARIOS,
-            "current_ks": round(cur_ks, 4), "horizon_years": years}
+            "carry": round(carry_val, 4), "e_fx": round(e_fx, 4), "scenarios": scenarios,
+            "p_shock": round(outlook.shock.p, 4), "current_ks": round(cur_ks, 4), "horizon_years": years}
 
 
 def generate_backtest(db: sqlite3.Connection, client, horizons=(1, 2, 3)) -> dict:

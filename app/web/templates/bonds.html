@@ -19,6 +19,13 @@
     font-size: 12px; padding: 3px 11px; margin-left: 6px; cursor: pointer; border-radius: 0; transition: color .15s, border-color .15s; }
   .cbtn:hover { color: var(--ink); }
   .cbtn.on { color: var(--ink); border-color: var(--ink); }
+  #outlook { padding: 15px 18px; margin: 14px 0 4px; }
+  .ol-title { font-size: 12px; letter-spacing: .1em; text-transform: uppercase; color: var(--muted); margin-bottom: 12px; }
+  .ol-row { display: flex; flex-wrap: wrap; gap: 36px; align-items: baseline; }
+  .ol-stat .k { font-size: 12px; color: var(--muted); display: block; margin-bottom: 2px; }
+  .ol-stat .v { font-size: 23px; font-family: "JetBrains Mono", monospace; }
+  .ol-tree { font-size: 13px; line-height: 1.8; margin-top: 12px; border-top: 1px solid var(--hair); padding-top: 10px; }
+  .ol-tree .br { color: var(--muted); text-transform: uppercase; letter-spacing: .05em; font-size: 11px; }
 </style>
 {% endblock %}
 {% block content %}
@@ -29,6 +36,15 @@
       строится из самих ОФЗ; спред корпората = YTM − кривая(дюр); PD из спреда (интерим, рейтинг/фундаментал — фаза 2b).</p>
   </div>
   <div class="actions"><button class="ghost" id="brefresh">↻ Обновить (MOEX ISS)</button></div>
+</div>
+<div class="panel" id="outlook" style="display:none">
+  <div class="ol-title">Макро-прогноз на <span id="ol-h"></span> — от него считаются все доходности</div>
+  <div class="ol-row">
+    <div class="ol-stat"><span class="k">E[инфляция]</span><span class="v" id="ol-infl"></span></div>
+    <div class="ol-stat"><span class="k">Риск шока</span><span class="v" id="ol-pshock"></span></div>
+    <div class="ol-stat"><span class="k">E[курс ₽]</span><span class="v" id="ol-fx"></span></div>
+  </div>
+  <div class="ol-tree" id="ol-tree"></div>
 </div>
 <div class="btabs">
   <button class="btab on" data-tab="ОФЗ" type="button">ОФЗ <span class="cnt" id="cnt-ofz"></span></button>
@@ -149,10 +165,25 @@ document.querySelectorAll(".cbtn").forEach(b => b.addEventListener("click", () =
   renderTab();
 }));
 
+function renderOutlook(o) {
+  const box = document.getElementById("outlook");
+  if (!o) { box.style.display = "none"; return; }
+  box.style.display = "";
+  document.getElementById("ol-h").textContent = o.horizon_years + " г";
+  document.getElementById("ol-infl").textContent = pct(o.e_inflation_h);
+  document.getElementById("ol-pshock").textContent = pct(o.p_shock);
+  document.getElementById("ol-fx").innerHTML = pctSigned(o.e_fx);
+  const s = o.shock;
+  document.getElementById("ol-tree").innerHTML =
+    `<span class="br">База ${pct(1 - o.p_shock)}:</span> дезинфляция ${pct(o.felt)} → ${o.terminal != null ? pct(o.terminal) : "—"}, ` +
+    `E[инфл] ${pct(o.base_inflation_h)}. &nbsp;&nbsp; ` +
+    `<span class="br">Шок ${pct(o.p_shock)}:</span> инфляция +${pct(s.infl_pp)}, курс +${pct(s.fx_pct)}, КС +${pct(s.ks_pp)}, акции ${pctSigned(s.equity_dd)}.`;
+}
 async function loadBonds() {
-  document.getElementById("brows").innerHTML = `<tr><td colspan="9" class="muted">Загрузка с MOEX ISS…</td></tr>`;
+  document.getElementById("brows").innerHTML = `<tr><td colspan="10" class="muted">Загрузка с MOEX ISS…</td></tr>`;
   BDATA = await getJSON("/bonds");
   if (BDATA.error) { renderTab(); return; }
+  renderOutlook(BDATA.outlook);
   document.getElementById("cnt-ofz").textContent = BDATA.bonds.filter(b => b.type === "ОФЗ").length;
   document.getElementById("cnt-corp").textContent = BDATA.bonds.filter(b => b.type === "Корп").length;
   const c = BDATA.ofz_curve || [];

@@ -38,6 +38,14 @@ def list_fx():
         return engine.screen_fx(db)
 
 
+@router.get("/outlook")
+def macro_outlook():
+    """Верхний слой: макро-прогноз на горизонт = инфляция (база) + риск шока (вектор)."""
+    from app.core import macro_outlook as mo
+    with get_db() as db:
+        return mo.build_outlook(db).as_dict()
+
+
 @router.get("/issuers/{secid}")
 def get_issuer(secid: str):
     with get_db() as db:

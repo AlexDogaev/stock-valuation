@@ -175,8 +175,8 @@ function renderOutlook(o) {
   document.getElementById("ol-fx").innerHTML = pctSigned(o.e_fx);
   const s = o.shock;
   document.getElementById("ol-tree").innerHTML =
-    `<span class="br">База ${pct(1 - o.p_shock)}:</span> дезинфляция ${pct(o.felt)} → ${o.terminal != null ? pct(o.terminal) : "—"}, ` +
-    `E[инфл] ${pct(o.base_inflation_h)}. &nbsp;&nbsp; ` +
+    `<span class="br">База ${pct(1 - o.p_shock)}:</span> дезинфляция ${pct(o.felt)} → ${o.terminal != null ? pct(o.terminal) : "—"} ` +
+    `за ~${o.norm_years} г <span class="muted">(${o.norm_source})</span>, E[инфл] ${pct(o.base_inflation_h)}. &nbsp;&nbsp; ` +
     `<span class="br">Шок ${pct(o.p_shock)}:</span> инфляция +${pct(s.infl_pp)}, курс +${pct(s.fx_pct)}, КС +${pct(s.ks_pp)}, акции ${pctSigned(s.equity_dd)}.`;
 }
 async function loadBonds() {
@@ -197,7 +197,7 @@ async function loadBonds() {
     `Кривая ОФЗ ~1г ${at(1)} · ~5л ${at(5)} · ~10л ${at(10)}. Ставка: ${dirRu} → длинный фикс ` +
     (BDATA.rate_direction==='cut'?"в плюс (capital gain).":"нейтрально/встречно.") +
     ` Инфляция: сейчас ${pct(BDATA.e_inflation_now)} → терминал ${BDATA.e_inflation_terminal!=null?pct(BDATA.e_inflation_terminal):'—'} ` +
-    `(нормализация ~${BDATA.infl_norm_years}г) — реал.YTM каждой бумаги = номинал − инфляция за ЕЁ срок. Защ. бар real≥0.`;
+    `— реал.YTM каждой бумаги = номинал − инфляция за ЕЁ срок. Защ. бар real≥0.`;
   renderTab();
 }
 document.getElementById("brefresh").addEventListener("click", async (e) => {

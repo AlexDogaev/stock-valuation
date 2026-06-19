@@ -534,7 +534,7 @@ def screen_bonds(db: sqlite3.Connection) -> dict:
             "ofz_curve": [[d, round(y, 4)] for d, y in curve], "rate_direction": rate_direction,
             "e_inflation_now": round(outlook.felt, 4),
             "e_inflation_terminal": (round(outlook.terminal, 4) if outlook.terminal is not None else None),
-            "infl_norm_years": valuation.INFLATION_NORM_YEARS, "outlook": outlook.as_dict(), "bond_hurdle": bond_hurdle,
+            "outlook": outlook.as_dict(), "bond_hurdle": bond_hurdle,
             "carry": round(carry_val, 4), "regime": frag["regime"], "macro_F": round(frag["F"], 3),
             "current_ks": round(cur_ks, 4), "terminal_ks": (tr or {}).get("terminal_ks"),
             "horizon_years": years}

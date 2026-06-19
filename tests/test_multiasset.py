@@ -89,7 +89,7 @@ def test_inflation_to_maturity_flat_when_no_terminal():
 def _outlook(p=0.2):
     from app.core.macro_outlook import MacroOutlook, ShockVector
     sv = ShockVector(p=p, infl_pp=0.10, fx_pct=0.25, ks_pp=0.07, equity_dd=-0.30)
-    return MacroOutlook(horizon_years=3, felt=0.14, terminal=0.06, shock=sv)
+    return MacroOutlook(horizon_years=3, felt=0.14, terminal=0.06, norm_years=2.0, shock=sv)
 
 
 def test_outlook_shock_lifts_inflation_more_for_short():
@@ -106,3 +106,15 @@ def test_outlook_fx_scenarios_tree():
     assert len(sc) == 2 and abs(sum(p for p, _ in sc) - 1.0) < 1e-9   # дерево база+шок, веса=1
     assert sc[1][1] > sc[0][1]                               # девальвация в шоке > базового дрейфа
     assert sc[0][1] < o.e_fx() < sc[1][1]                    # E между ветками
+
+
+# ── окно дезинфляции выводится из траектории (не хардкод) ──────────────────────
+def test_disinflation_window_from_pace():
+    from app.core.rate_trajectory import disinflation_years, NORM_YEARS_FALLBACK
+    # КС 14.5→9 (gap 5.5пп). Быстрый темп −1.5пп/заседание → короче, медленный −0.4 → длиннее
+    fast = disinflation_years(0.145, 0.09, -1.5)
+    slow = disinflation_years(0.145, 0.09, -0.4)
+    assert slow > fast                                       # медленнее темп → дольше окно
+    assert disinflation_years(0.145, None, -1.0) == NORM_YEARS_FALLBACK   # нет терминала → резерв
+    assert disinflation_years(0.10, 0.10, -1.0) == 0.5      # уже у терминала → нижняя граница
+    assert disinflation_years(0.145, 0.09, 0.0) == NORM_YEARS_FALLBACK    # удержание → резерв

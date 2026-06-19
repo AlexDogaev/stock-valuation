@@ -23,6 +23,30 @@ STEP_AGGR = 0.85      # ≥ — «агрессивное»
 NEUTRAL_KS = 0.09     # долгосрочная нейтральная КС РФ (дефолт; Opus уточняет терминал)
 REAL_SPREAD = 0.025   # целевой реальный спред КС − инфляция (долгосрочно)
 
+MEETINGS_PER_YEAR = 8        # регламент заседаний ЦБ РФ (опорные + промежуточные ≈ 8/год)
+NORM_YEARS_BOUNDS = (0.5, 4.0)   # страховочные границы окна дезинфляции
+NORM_YEARS_FALLBACK = 2.0        # последний резерв (нет траектории вовсе)
+
+
+def disinflation_years(current_ks: float | None, terminal_ks: float | None,
+                       avg_step_pp: float | None) -> float:
+    """Окно нормализации инфляции = время выхода КС на терминал ПО ТРАЕКТОРИИ (не константа).
+
+    Расстояние КС до терминала (пп) ÷ наблюдаемый темп решений ЦБ (avg_step_pp за заседание)
+    ÷ 8 заседаний/год. Грубая экстраполяция темпа — оценка Opus по риторике ЦБ
+    (disinflation_months) приоритетнее (см. macro_outlook.build_outlook).
+    """
+    if current_ks is None or terminal_ks is None:
+        return NORM_YEARS_FALLBACK
+    gap_pp = abs(current_ks - terminal_ks) * 100.0
+    if gap_pp < 0.25:                       # уже у терминала → минимум
+        return NORM_YEARS_BOUNDS[0]
+    step = abs(avg_step_pp or 0.0)
+    if step < 0.1:                          # темп не читается (удержание) → резерв
+        return NORM_YEARS_FALLBACK
+    yrs = (gap_pp / step) / MEETINGS_PER_YEAR
+    return max(NORM_YEARS_BOUNDS[0], min(NORM_YEARS_BOUNDS[1], yrs))
+
 
 def pace_grade(decisions: list[tuple[str, float]]) -> dict:
     """Числовая градация по темпу последних решений (fallback без Opus).

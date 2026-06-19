@@ -14,7 +14,6 @@ from app.core import valuation
 
 # Дефолты шок-вектора (если Opus не дал) — типовой РФ-шок (девальвация/война/банковский кризис).
 DEFAULT_SHOCK = {"infl_pp": 0.08, "fx_pct": 0.25, "ks_pp": 0.07, "equity_dd": -0.30}
-SHOCK_DURATION_YEARS = 2.0                                   # длительность повышенной инфляции в шоке
 REGIME_P_SHOCK = {"NORMAL": 0.10, "RISK": 0.25, "SHOCK": 0.45}  # p_shock по режиму, если нет агрегата Opus
 WORLD_INFLATION = 0.03                                       # внешняя инфляция (прокси для базового дрейфа рубля)
 
@@ -33,20 +32,23 @@ class MacroOutlook:
     horizon_years: int
     felt: float                 # ощущаемая инфляция сейчас (год 1)
     terminal: float | None      # терминальная инфляция (из траектории КС)
+    norm_years: float           # окно дезинфляции — ВЫВОДИТСЯ из траектории/риторики, НЕ хардкод
     shock: ShockVector
+    norm_source: str = ""       # источник окна: Opus/риторика | темп траектории | резерв
 
     def base_inflation(self, maturity: float | None = None) -> float:
-        """Базовая ожидаемая инфляция за срок (срочная структура felt→terminal, без шока)."""
+        """Базовая ожидаемая инфляция за срок (срочная структура felt→terminal за norm_years)."""
         M = maturity if maturity else self.horizon_years
-        return valuation.inflation_to_maturity(self.felt, self.terminal, M)
+        return valuation.inflation_to_maturity(self.felt, self.terminal, M, norm_years=self.norm_years)
 
     def e_inflation(self, maturity: float | None = None) -> float:
-        """E[инфляция] = база + вклад шок-ветки (взвешен по p и доле срока в окне шока).
+        """E[инфляция] = база + вклад шок-ветки (взвешен по p и доле срока в окне дезинфляции).
 
-        Короткая бумага полностью внутри шок-окна → весь вклад; длинная — разбавляет.
+        Шок «переоткрывает» дезинфляцию: повышенная инфляция держится ~norm_years. Короткая
+        бумага полностью внутри окна → весь вклад; длинная — разбавляет.
         """
         M = maturity if maturity else self.horizon_years
-        share = min(SHOCK_DURATION_YEARS, M) / M if M else 1.0
+        share = min(self.norm_years, M) / M if M else 1.0
         return self.base_inflation(M) + self.shock.p * self.shock.infl_pp * share
 
     def fx_scenarios(self) -> list[tuple[float, float]]:
@@ -63,6 +65,8 @@ class MacroOutlook:
             "horizon_years": self.horizon_years,
             "felt": round(self.felt, 4),
             "terminal": (round(self.terminal, 4) if self.terminal is not None else None),
+            "norm_years": round(self.norm_years, 2),
+            "norm_source": self.norm_source,
             "p_shock": round(self.shock.p, 4),
             "base_inflation_h": round(self.base_inflation(), 4),
             "e_inflation_h": round(self.e_inflation(), 4),
@@ -101,6 +105,26 @@ def _shock_vector(db) -> ShockVector:
     )
 
 
+def _norm_years(db) -> tuple[float, str]:
+    """Окно дезинфляции: приоритет — оценка Opus из риторики ЦБ (disinflation_months);
+    иначе расчёт по темпу траектории; иначе резерв. НЕ хардкод (решение Саши 20.06.2026)."""
+    from app.core import rate_trajectory as rt
+    try:
+        from app.core import llm_macro
+        from app.data.db import get_macro
+        tr = llm_macro.get_rate_trajectory(db) or {}
+        dim = tr.get("disinflation_months")
+        if dim:
+            lo, hi = rt.NORM_YEARS_BOUNDS
+            return max(lo, min(hi, dim / 12.0)), "Opus/риторика ЦБ"
+        if tr.get("terminal_ks") is not None:
+            cur_ks = (get_macro(db) or {}).get("key_rate")
+            return rt.disinflation_years(cur_ks, tr["terminal_ks"], tr.get("avg_step_pp")), "темп траектории КС"
+    except Exception:  # noqa: BLE001
+        pass
+    return rt.NORM_YEARS_FALLBACK, "резерв (нет траектории)"
+
+
 def build_outlook(db, horizon: int | None = None) -> MacroOutlook:
     """Собрать макро-прогноз на горизонт из настроек (инфляция) + Opus (траектория КС, шок)."""
     from app.data.db import get_settings
@@ -110,4 +134,6 @@ def build_outlook(db, horizon: int | None = None) -> MacroOutlook:
     felt = settings.get("felt_inflation")
     felt = felt if felt is not None else DEFAULTS["felt_inflation"]
     terminal = terminal_inflation(settings, db)
-    return MacroOutlook(horizon_years=years, felt=felt, terminal=terminal, shock=_shock_vector(db))
+    norm_years, norm_source = _norm_years(db)
+    return MacroOutlook(horizon_years=years, felt=felt, terminal=terminal,
+                        norm_years=norm_years, norm_source=norm_source, shock=_shock_vector(db))

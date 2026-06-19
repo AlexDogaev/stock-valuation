@@ -46,6 +46,13 @@ def macro_outlook():
         return mo.build_outlook(db).as_dict()
 
 
+@router.get("/scenario")
+def scenario():
+    """Сценарий buy-and-hold: реальная доходность за 3/5/10/20 лет с учётом инфляции и шока."""
+    with get_db() as db:
+        return engine.scenario_table(db)
+
+
 @router.get("/issuers/{secid}")
 def get_issuer(secid: str):
     with get_db() as db:

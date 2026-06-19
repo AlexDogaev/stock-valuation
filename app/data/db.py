@@ -266,6 +266,9 @@ def init_db() -> None:
         _ensure_column(db, "shock_risk", "shock_infl_pp", "REAL")        # +пп к инфляции в шоке
         _ensure_column(db, "shock_risk", "shock_fx_pct", "REAL")         # девальвация рубля в шоке, %
         _ensure_column(db, "shock_risk", "shock_ks_pp", "REAL")          # +пп к КС в шоке
+        _ensure_column(db, "shock_risk", "imoex_drawdown_pct", "REAL")   # УСЛОВНАЯ просадка IMOEX (2014/2022)
+        _ensure_column(db, "shock_risk", "recovery_1y", "REAL")          # доля просадки, отыгранная за год
+        _ensure_column(db, "shock_risk", "sectoral_json", "TEXT")        # секторальные просадки в шоке
         _ensure_column(db, "rate_trajectory", "disinflation_months", "REAL")  # окно выхода инфл. на терминал (Opus/траектория)
         # для маркеров качества (§2-4 плана автономности)
         _ensure_column(db, "financials", "proven_roic_years", "INTEGER")  # экспертная ретроспектива

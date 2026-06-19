@@ -118,3 +118,25 @@ def test_disinflation_window_from_pace():
     assert disinflation_years(0.145, None, -1.0) == NORM_YEARS_FALLBACK   # нет терминала → резерв
     assert disinflation_years(0.10, 0.10, -1.0) == 0.5      # уже у терминала → нижняя граница
     assert disinflation_years(0.145, 0.09, 0.0) == NORM_YEARS_FALLBACK    # удержание → резерв
+
+
+# ── сценарий по горизонтам: растущая P(шок) + реальная доходность buy-and-hold ─
+def test_cumulative_shock_grows_to_near_certain():
+    o = _outlook(p=0.12)
+    assert o.cumulative_shock_p(3) < o.cumulative_shock_p(20)   # растёт с горизонтом
+    assert o.cumulative_shock_p(20) > 0.90                      # за 20 лет ≈ точно (референс Саши)
+
+
+def test_equity_shock_drag_positive_and_gated():
+    o = _outlook(p=0.15)
+    assert o.equity_shock_drag(2) == 0.0                        # <3 лет — драг не включаем
+    assert o.equity_shock_drag(10) > 0.0                        # есть драг
+    assert o.equity_shock_drag(5) > o.equity_shock_drag(20)     # годовой драг убывает (end-effect /H)
+
+
+def test_real_return_ofz_robust_equity_hit():
+    o = _outlook(p=0.12)
+    ofz = o.real_return("ofz", 10, nominal=0.15)
+    assert ofz["shock_drag"] == 0.0                             # ОФЗ HtM — шок не бьёт
+    eq = o.real_return("equity", 10, nominal=0.15)
+    assert eq["shock_drag"] > 0 and eq["net_real"] < eq["base_real"]   # шок режет акции

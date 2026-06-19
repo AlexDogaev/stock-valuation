@@ -580,6 +580,43 @@ def screen_fx(db: sqlite3.Connection) -> dict:
             "p_shock": round(outlook.shock.p, 4), "current_ks": round(cur_ks, 4), "horizon_years": years}
 
 
+def scenario_table(db: sqlite3.Connection, horizons=(3, 5, 10, 20)) -> dict:
+    """Сценарий buy-and-hold: реальная доходность (с уч. инфляции и шока) за 3/5/10/20 лет.
+    Кумулятивная вероятность шока растёт с горизонтом; тайминг шока равновероятен по месяцам."""
+    from app.core import macro_outlook as mo
+    from app.data import moex_bonds as mb
+    ol = mo.build_outlook(db)
+    long_ytm = fx_ytm = None
+    try:                                            # длинная ОФЗ-фикс: дальний конец кривой
+        ofz = [b for b in mb.fetch_bonds(mb.OFZ_BOARD)
+               if b["coupon_type"] == "Фикс" and mb.is_sane(b, min_dur=0.25, ytm_lo=0.05, ytm_hi=0.30, min_trades=0)]
+        ofz.sort(key=lambda x: x["duration_years"])
+        long_ytm = ofz[-1]["ytm"] if ofz else None
+    except Exception:  # noqa: BLE001
+        pass
+    try:                                            # замещайка: самая ликвидная
+        fxb = [b for b in mb.fetch_bonds(mb.CORP_BOARD, fx=True)
+               if b["coupon_type"] in mb.CLASSIC and mb.is_sane(b, min_dur=0.5, ytm_lo=0.02, ytm_hi=0.20, min_trades=3)]
+        fxb.sort(key=lambda x: -x["num_trades"])
+        fx_ytm = fxb[0]["ytm"] if fxb else None
+    except Exception:  # noqa: BLE001
+        pass
+    rows = []
+    for H in horizons:
+        rows.append({
+            "horizon": H,
+            "p_shock_cum": round(ol.cumulative_shock_p(H), 4),
+            "e_inflation": round(ol.e_inflation(H), 4),
+            "ofz": (ol.real_return("ofz", H, nominal=long_ytm) if long_ytm else None),
+            "fx": (ol.real_return("fx", H, fx_ytm=fx_ytm) if fx_ytm else None),
+            "equity": (ol.real_return("equity", H, nominal=long_ytm) if long_ytm else None),
+        })
+    return {"horizons": rows, "outlook": ol.as_dict(), "sectoral": ol.shock.sectoral,
+            "inputs": {"long_ofz_ytm": (round(long_ytm, 4) if long_ytm else None),
+                       "fx_ytm": (round(fx_ytm, 4) if fx_ytm else None), "erp": mo.EQUITY_RISK_PREMIUM,
+                       "recovery_1y": ol.shock.recovery_1y, "equity_dd": ol.shock.equity_dd}}
+
+
 def generate_backtest(db: sqlite3.Connection, client, horizons=(1, 2, 3)) -> dict:
     """Backtest на истории MOEX (лист «Backtest»).
 

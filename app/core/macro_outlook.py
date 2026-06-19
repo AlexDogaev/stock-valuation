@@ -8,23 +8,33 @@
 """
 from __future__ import annotations
 
-from dataclasses import dataclass
+import math
+from dataclasses import dataclass, field
 
 from app.core import valuation
 
-# Дефолты шок-вектора (если Opus не дал) — типовой РФ-шок (девальвация/война/банковский кризис).
-DEFAULT_SHOCK = {"infl_pp": 0.08, "fx_pct": 0.25, "ks_pp": 0.07, "equity_dd": -0.30}
-REGIME_P_SHOCK = {"NORMAL": 0.10, "RISK": 0.25, "SHOCK": 0.45}  # p_shock по режиму, если нет агрегата Opus
+# Дефолты шок-профиля — КАЛИБРОВКА по 2014 и 2022 (два глубоких шока РФ). Opus уточняет.
+#   equity_dd — УСЛОВНАЯ просадка IMOEX *если* шок (2014 −30%, 2022 −43% → ~−37%);
+#   recovery_1y — доля просадки, восстановленная за год (2014 быстро через экспортёров, 2022 частично);
+#   fx_pct девальвация (2014 +50%, 2022 +30% устойчиво); ks_pp реакция ЦБ (2014→17%, 2022→20%);
+#   infl_pp всплеск инфляции (~+9пп пик). Секторально — для описания шока (не в расчёт реала).
+DEFAULT_SHOCK = {"infl_pp": 0.09, "fx_pct": 0.40, "ks_pp": 0.085, "equity_dd": -0.37, "recovery_1y": 0.55}
+SECTORAL_DD = {"экспортёры": -0.18, "внутренние": -0.45, "банки": -0.45, "IT": -0.50}  # 2014/2022 калибровка
+REGIME_P_SHOCK = {"NORMAL": 0.10, "RISK": 0.25, "SHOCK": 0.45}  # годовой hazard по режиму, если нет агрегата Opus
 WORLD_INFLATION = 0.03                                       # внешняя инфляция (прокси для базового дрейфа рубля)
+EQUITY_RISK_PREMIUM = 0.04                                   # реальная премия акций над ОФЗ (допущение, тюнится)
+SHOCK_HORIZON_MIN = 3                                        # шок-драг в сценарии включаем от 3 лет (Саша)
 
 
 @dataclass
 class ShockVector:
-    p: float            # вероятность шока на горизонте (доля)
+    p: float            # ГОДОВОЙ hazard шока (доля); кумулятив за H = 1−(1−p)^H
     infl_pp: float      # +доля к инфляции в шоке (годовых)
     fx_pct: float       # девальвация рубля в шоке (доля, + = ослабление)
     ks_pp: float        # +доля к КС в шоке
-    equity_dd: float    # просадка акций в шоке (доля, отрицательная)
+    equity_dd: float    # УСЛОВНАЯ просадка акций *если* шок (доля, отрицательная)
+    recovery_1y: float = 0.55           # доля просадки, восстановленная за год
+    sectoral: dict = field(default_factory=lambda: dict(SECTORAL_DD))   # секторальные просадки (описание)
 
 
 @dataclass
@@ -60,6 +70,51 @@ class MacroOutlook:
     def e_fx(self) -> float:
         return sum(prob * mv for prob, mv in self.fx_scenarios())
 
+    # ── сценарий по горизонтам: вероятность шока + реальная доходность buy-and-hold ──
+    def cumulative_shock_p(self, horizon: float) -> float:
+        """P(≥1 шок за горизонт H) = 1−(1−hazard)^H. За 20 лет ≈ почти точно (референс Саши)."""
+        return 1.0 - (1.0 - self.shock.p) ** horizon
+
+    def equity_shock_drag(self, horizon: float) -> float:
+        """Ожидаемый годовой РЕАЛЬНЫЙ драг акций от шоков, тайминг равновероятен по месяцам.
+
+        Шок в месяце m: условная просадка D, за год восстанавливается доля r → перманентный
+        остаток D·(1−r) (компаундится по всем шокам) + временный D·r, ещё не отыгранный к концу
+        горизонта (только если шок в последние 12 мес). Усреднение по всем месяцам = равновероятный
+        тайминг. Возвращает годовой драг (положит. = вычитается из доходности)."""
+        if horizon < SHOCK_HORIZON_MIN:
+            return 0.0
+        D = abs(self.shock.equity_dd)
+        r = self.shock.recovery_1y
+        p_m = self.shock.p / 12.0
+        N = int(round(horizon * 12))
+        ln_mult = 0.0
+        for m in range(N):
+            tau = (N - 1 - m) / 12.0                              # лет до конца горизонта от шока в мес. m
+            resid = D * (1.0 - r) + D * r * max(0.0, 1.0 - tau)   # перманент + невосстановл. временный
+            ln_mult += p_m * math.log(max(1e-6, 1.0 - resid))
+        return -(ln_mult / horizon)                              # годовой драг
+
+    def real_return(self, asset: str, horizon: float, *, nominal: float | None = None,
+                    fx_ytm: float | None = None) -> dict:
+        """Реальная доходность buy-and-hold за H (CAGR), с учётом инфляции и шока.
+
+        asset: 'ofz' (фикс HtM: real=nominal−E[инфл], шок не бьёт — цена к номиналу, инфл.всплеск
+        уже в E[инфл]); 'fx' (real=fx_ytm+E[курс]−E[инфл], шок в плюс); 'equity' (real=ОФЗ-реал+ERP
+        − драг шоков)."""
+        e_infl = self.e_inflation(horizon)
+        if asset == "ofz":
+            base = (nominal or 0.0) - e_infl
+            return {"base_real": round(base, 4), "shock_drag": 0.0, "net_real": round(base, 4)}
+        if asset == "fx":
+            base = (fx_ytm or 0.0) + self.e_fx() - e_infl
+            return {"base_real": round(base, 4), "shock_drag": 0.0, "net_real": round(base, 4)}
+        # equity: база = ОФЗ-реал + премия; минус драг шоков (накопленный за горизонт)
+        ofz_real = (nominal or 0.0) - e_infl
+        base = ofz_real + EQUITY_RISK_PREMIUM
+        drag = self.equity_shock_drag(horizon)
+        return {"base_real": round(base, 4), "shock_drag": round(drag, 4), "net_real": round(base - drag, 4)}
+
     def as_dict(self) -> dict:
         return {
             "horizon_years": self.horizon_years,
@@ -71,22 +126,28 @@ class MacroOutlook:
             "base_inflation_h": round(self.base_inflation(), 4),
             "e_inflation_h": round(self.e_inflation(), 4),
             "shock": {"infl_pp": round(self.shock.infl_pp, 4), "fx_pct": round(self.shock.fx_pct, 4),
-                      "ks_pp": round(self.shock.ks_pp, 4), "equity_dd": round(self.shock.equity_dd, 4)},
+                      "ks_pp": round(self.shock.ks_pp, 4), "equity_dd": round(self.shock.equity_dd, 4),
+                      "recovery_1y": round(self.shock.recovery_1y, 4), "sectoral": self.shock.sectoral},
             "e_fx": round(self.e_fx(), 4),
         }
 
 
 def _shock_vector(db) -> ShockVector:
-    """Шок-вектор из Opus (get_shock), с дефолтами по режиму если данных нет."""
-    p = infl = fx = ks = eqdd = None
+    """Шок-вектор из Opus (get_shock), с КАЛИБРОВКОЙ 2014/2022 как дефолтами.
+
+    p — ГОДОВОЙ hazard (aggregate_pct = вероятность шока за 12 мес). equity_dd — УСЛОВНАЯ просадка
+    (imoex_drawdown_pct), НЕ expected_damage (то — безусловное p×severity)."""
+    p = infl = fx = ks = eqdd = rec = sect = None
     try:
         from app.core import llm_macro
         sh = llm_macro.get_shock(db) or {}
         agg = sh.get("aggregate_pct")
         p = (agg / 100.0) if agg is not None else None
         infl, fx, ks = sh.get("shock_infl_pp"), sh.get("shock_fx_pct"), sh.get("shock_ks_pp")
-        sev = sh.get("expected_damage_pct")
-        eqdd = -(sev / 100.0) if sev is not None else None
+        dd = sh.get("imoex_drawdown_pct")
+        eqdd = -(dd / 100.0) if dd is not None else None
+        rec = sh.get("recovery_1y")
+        sect = sh.get("sectoral")
     except Exception:  # noqa: BLE001 — прогноз не должен ронять сервис
         pass
     if p is None:
@@ -102,6 +163,8 @@ def _shock_vector(db) -> ShockVector:
         fx_pct=fx if fx is not None else DEFAULT_SHOCK["fx_pct"],
         ks_pp=ks if ks is not None else DEFAULT_SHOCK["ks_pp"],
         equity_dd=eqdd if eqdd is not None else DEFAULT_SHOCK["equity_dd"],
+        recovery_1y=rec if rec is not None else DEFAULT_SHOCK["recovery_1y"],
+        sectoral=sect if isinstance(sect, dict) and sect else dict(SECTORAL_DD),
     )
 
 

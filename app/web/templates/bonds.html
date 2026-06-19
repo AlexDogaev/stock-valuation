@@ -26,6 +26,13 @@
   .ol-stat .v { font-size: 23px; font-family: "JetBrains Mono", monospace; }
   .ol-tree { font-size: 13px; line-height: 1.8; margin-top: 12px; border-top: 1px solid var(--hair); padding-top: 10px; }
   .ol-tree .br { color: var(--muted); text-transform: uppercase; letter-spacing: .05em; font-size: 11px; }
+  #scenario { padding: 15px 18px; margin: 8px 0 4px; }
+  .sc-tbl { width: 100%; margin-top: 4px; border-collapse: collapse; }
+  .sc-tbl th, .sc-tbl td { padding: 9px 12px; text-align: right; font-size: 14px; }
+  .sc-tbl th { font-size: 12px; color: var(--muted); font-weight: 500; border-bottom: 1px solid var(--hair); }
+  .sc-tbl th:first-child, .sc-tbl td:first-child { text-align: left; }
+  .sc-tbl tbody tr + tr td { border-top: 1px solid var(--hair); }
+  .sc-shock { font-size: 12px; color: var(--muted); line-height: 1.75; margin-top: 12px; border-top: 1px solid var(--hair); padding-top: 10px; }
 </style>
 {% endblock %}
 {% block content %}
@@ -45,6 +52,21 @@
     <div class="ol-stat"><span class="k">E[курс ₽]</span><span class="v" id="ol-fx"></span></div>
   </div>
   <div class="ol-tree" id="ol-tree"></div>
+</div>
+<div class="panel" id="scenario" style="display:none">
+  <div class="ol-title">Сценарий buy-and-hold: реальная доходность за горизонт (с уч. инфляции и шока)</div>
+  <table class="sc-tbl">
+    <thead><tr>
+      <th>Горизонт</th>
+      <th title="кумулятивная вероятность ≥1 шока за горизонт = 1−(1−hazard)^H">P(≥1 шок)</th>
+      <th>E[инфляция]</th>
+      <th title="ОФЗ-фикс до погашения: real = YTM − E[инфл]; шок не бьёт (цена к номиналу)">ОФЗ-фикс</th>
+      <th title="замещайка: real = FX-YTM + E[курс] − E[инфл]; девальвация в шоке в плюс">Замещайка</th>
+      <th title="акции = ОФЗ-реал + премия − драг шоков (тайминг равновероятен по месяцам)">Акции IMOEX</th>
+    </tr></thead>
+    <tbody id="sc-rows"></tbody>
+  </table>
+  <div class="sc-shock" id="sc-shock"></div>
 </div>
 <div class="btabs">
   <button class="btab on" data-tab="ОФЗ" type="button">ОФЗ <span class="cnt" id="cnt-ofz"></span></button>
@@ -179,6 +201,30 @@ function renderOutlook(o) {
     `за ~${o.norm_years} г <span class="muted">(${o.norm_source})</span>, E[инфл] ${pct(o.base_inflation_h)}. &nbsp;&nbsp; ` +
     `<span class="br">Шок ${pct(o.p_shock)}:</span> инфляция +${pct(s.infl_pp)}, курс +${pct(s.fx_pct)}, КС +${pct(s.ks_pp)}, акции ${pctSigned(s.equity_dd)}.`;
 }
+async function loadScenario() {
+  let s;
+  try { s = await getJSON("/scenario"); } catch (e) { return; }
+  if (!s || !s.horizons) return;
+  document.getElementById("scenario").style.display = "";
+  document.getElementById("sc-rows").innerHTML = s.horizons.map(r => {
+    const eq = r.equity ? `${pctSigned(r.equity.net_real)} <span class="muted" title="годовой драг от шоков">(−${pct(r.equity.shock_drag)})</span>` : "—";
+    return `<tr>
+      <td>${r.horizon} лет</td>
+      <td>${pct(r.p_shock_cum)}</td>
+      <td>${pct(r.e_inflation)}</td>
+      <td>${r.ofz ? pctSigned(r.ofz.net_real) : "—"}</td>
+      <td>${r.fx ? pctSigned(r.fx.net_real) : "—"}</td>
+      <td>${eq}</td>
+    </tr>`;
+  }).join("");
+  const sh = s.outlook.shock, sec = s.sectoral || {}, inp = s.inputs || {};
+  const secStr = Object.entries(sec).map(([k, v]) => `${k} ${pct(v)}`).join(", ");
+  document.getElementById("sc-shock").innerHTML =
+    `<b>Профиль шока (калибровка 2014/2022):</b> просадка IMOEX ${pct(sh.equity_dd)} (${secStr}); ` +
+    `₽ ${pctSigned(sh.fx_pct)}; КС +${pct(sh.ks_pp)}; инфляция +${pct(sh.infl_pp)}; восстановление ${pct(sh.recovery_1y)}/год. ` +
+    `Допущения: премия акций +${pct(inp.erp)}, ОФЗ-YTM ${inp.long_ofz_ytm != null ? pct(inp.long_ofz_ytm) : "—"}, ` +
+    `FX-YTM ${inp.fx_ytm != null ? pct(inp.fx_ytm) : "—"}; тайминг шока равновероятен по месяцам.`;
+}
 async function loadBonds() {
   document.getElementById("brows").innerHTML = `<tr><td colspan="10" class="muted">Загрузка с MOEX ISS…</td></tr>`;
   BDATA = await getJSON("/bonds");
@@ -205,5 +251,6 @@ document.getElementById("brefresh").addEventListener("click", async (e) => {
   try { await loadBonds(); } finally { e.target.disabled = false; e.target.textContent = "↻ Обновить (MOEX ISS)"; }
 });
 loadBonds();
+loadScenario();
 </script>
 {% endblock %}

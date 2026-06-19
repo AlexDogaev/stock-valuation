@@ -7,6 +7,13 @@
   .btype { font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
   .btype.ofz { color: var(--buy); }
   .nocred { color: var(--avoid); font-size: 12px; }
+  .btabs { display: flex; gap: 24px; margin: 14px 0 2px; border-bottom: 1px solid var(--hair); }
+  .btab { background: none; border: 0; padding: 9px 0; color: var(--muted); font-family: inherit;
+    font-size: 13px; letter-spacing: .08em; text-transform: uppercase; cursor: pointer;
+    border-bottom: 2px solid transparent; margin-bottom: -1px; transition: color .15s, border-color .15s; }
+  .btab:hover { color: var(--ink); }
+  .btab.on { color: var(--ink); border-bottom-color: var(--buy); }
+  .btab .cnt { color: var(--faint); font-size: 12px; margin-left: 6px; }
 </style>
 {% endblock %}
 {% block content %}
@@ -17,6 +24,10 @@
       строится из самих ОФЗ; спред корпората = YTM − кривая(дюр); PD из спреда (интерим, рейтинг/фундаментал — фаза 2b).</p>
   </div>
   <div class="actions"><button class="ghost" id="brefresh">↻ Обновить (MOEX ISS)</button></div>
+</div>
+<div class="btabs">
+  <button class="btab on" data-tab="ОФЗ" type="button">ОФЗ <span class="cnt" id="cnt-ofz"></span></button>
+  <button class="btab" data-tab="Корп" type="button">Корпоративные <span class="cnt" id="cnt-corp"></span></button>
 </div>
 <div id="bbanner" class="sub" style="margin:12px 0 0;padding:10px 14px;border-left:2px solid var(--hair);line-height:1.6"></div>
 <div class="panel" style="padding:0;overflow:hidden">
@@ -47,20 +58,40 @@ function bondRow(b) {
     <td class="num"><span class="muted">${b.rate_signal}</span></td>
     <td>${sigBadge(b.signal)}</td>`;
 }
-async function loadBonds() {
-  const d = await getJSON("/bonds");
+let BDATA = null, TAB = "ОФЗ";
+function renderTab() {
   const rows = document.getElementById("brows");
-  if (d.error) { rows.innerHTML = `<tr><td colspan="9" class="warn">${d.error}</td></tr>`; return; }
-  rows.innerHTML = d.bonds.map(bondRow).join("");
-  const c = d.ofz_curve || [];
+  if (!BDATA) return;
+  if (BDATA.error) { rows.innerHTML = `<tr><td colspan="9" class="warn">${BDATA.error}</td></tr>`; return; }
+  const list = BDATA.bonds.filter(b => b.type === TAB);
+  rows.innerHTML = list.length ? list.map(bondRow).join("")
+                              : `<tr><td colspan="9" class="muted">Нет бумаг.</td></tr>`;
+  const buy = list.filter(b => b.signal === "ПОКУПАЙ").length;
+  document.getElementById("bmeta").textContent =
+    `${TAB === "ОФЗ" ? "ОФЗ" : "Корпоративные"}: ${list.length} бумаг, ${buy} ПОКУПАЙ.`
+    + (TAB === "Корп" ? " PD junk-cap 10% (интерим); рейтинг/фундаментал — фаза 2b." : "");
+}
+function setTab(t) {
+  TAB = t;
+  document.querySelectorAll(".btab").forEach(b => b.classList.toggle("on", b.dataset.tab === t));
+  renderTab();
+}
+document.querySelectorAll(".btab").forEach(b => b.addEventListener("click", () => setTab(b.dataset.tab)));
+
+async function loadBonds() {
+  document.getElementById("brows").innerHTML = `<tr><td colspan="9" class="muted">Загрузка с MOEX ISS…</td></tr>`;
+  BDATA = await getJSON("/bonds");
+  if (BDATA.error) { renderTab(); return; }
+  document.getElementById("cnt-ofz").textContent = BDATA.bonds.filter(b => b.type === "ОФЗ").length;
+  document.getElementById("cnt-corp").textContent = BDATA.bonds.filter(b => b.type === "Корп").length;
+  const c = BDATA.ofz_curve || [];
   const at = (yr) => { let best=null; for (const [dd,yy] of c) if (best===null || Math.abs(dd-yr)<Math.abs(best[0]-yr)) best=[dd,yy]; return best?pct(best[1]):"—"; };
-  const dirRu = {cut:"снижение КС", hike:"рост КС", hold:"удержание"}[d.rate_direction] || d.rate_direction;
+  const dirRu = {cut:"снижение КС", hike:"рост КС", hold:"удержание"}[BDATA.rate_direction] || BDATA.rate_direction;
   document.getElementById("bbanner").textContent =
     `Кривая ОФЗ ~1г ${at(1)} · ~5л ${at(5)} · ~10л ${at(10)}. Ставочный режим: ${dirRu} → длинный фикс ` +
-    (d.rate_direction==='cut'?"в плюс (capital gain).":"нейтрально/встречно.") +
-    ` E[инфляция] ${pct(d.e_inflation)}, защитный бар real≥0.`;
-  document.getElementById("bmeta").textContent =
-    `${d.count} бумаг (ОФЗ + ликвидные корпораты). ${d.buy} ПОКУПАЙ. PD junk-cap 10% (интерим).`;
+    (BDATA.rate_direction==='cut'?"в плюс (capital gain).":"нейтрально/встречно.") +
+    ` E[инфляция] ${pct(BDATA.e_inflation)}, защитный бар real≥0.`;
+  renderTab();
 }
 document.getElementById("brefresh").addEventListener("click", async (e) => {
   e.target.disabled = true; e.target.textContent = "Обновляю…";

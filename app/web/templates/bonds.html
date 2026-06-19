@@ -33,23 +33,37 @@
 <div class="btabs">
   <button class="btab on" data-tab="ОФЗ" type="button">ОФЗ <span class="cnt" id="cnt-ofz"></span></button>
   <button class="btab" data-tab="Корп" type="button">Корпоративные <span class="cnt" id="cnt-corp"></span></button>
+  <button class="btab" data-tab="Валюта" type="button">Валюта <span class="cnt" id="cnt-fx"></span></button>
 </div>
-<div class="cfilter">Купон:
+<div class="cfilter" id="cfilter">Купон:
   <button class="cbtn on" data-ct="Все" type="button">Все</button>
   <button class="cbtn" data-ct="Фикс" type="button">Фикс</button>
   <button class="cbtn" data-ct="Флоат" type="button">Флоат</button>
   <button class="cbtn" data-ct="Линкер" type="button">Линкер</button>
 </div>
 <div id="bbanner" class="sub" style="margin:12px 0 0;padding:10px 14px;border-left:2px solid var(--hair);line-height:1.6"></div>
-<div class="panel" style="padding:0;overflow:hidden">
+<div class="panel" id="bpanel" style="padding:0;overflow:hidden">
   <table id="btbl">
     <thead><tr>
       <th>Бумага</th><th>Купон</th><th>YTM</th><th>Реал.YTM</th>
-      <th title="реальная доходность за вычетом ожидаемых кредитных потерь PD×LGD">Реал.−риск</th>
-      <th title="вероятность дефолта (из рыночного спреда; интерим)">Дефолт-риск</th>
+      <th title="реальная доходность за вычетом ожидаемых кредитных потерь PD×LGD (годовая)">Реал.−риск</th>
+      <th title="годовая вероятность дефолта (12 мес), из рыночного спреда; под стресс-множителем макро-режима">Дефолт 12м</th>
+      <th title="кумулятивная вероятность дефолта за срок до погашения (дюрацию): 1−(1−PD)^срок">Дефолт срок</th>
       <th>Дюр, лет</th><th>Ставка</th><th>Сигнал</th>
     </tr></thead>
-    <tbody id="brows"><tr><td colspan="9" class="muted">Загрузка с MOEX ISS…</td></tr></tbody>
+    <tbody id="brows"><tr><td colspan="10" class="muted">Загрузка с MOEX ISS…</td></tr></tbody>
+  </table>
+</div>
+<div class="panel" id="fxpanel" style="padding:0;overflow:hidden;display:none">
+  <table id="fxtbl">
+    <thead><tr>
+      <th>Бумага</th><th>Валюта</th><th>FX-YTM</th><th>Купон</th><th>Дюр, лет</th>
+      <th title="ожидаемое курсовое движение (год) по распределению сценариев">E[курс/год]</th>
+      <th title="полная рублёвая E[отдача] = FX-YTM + E[курс]">E[отдача ₽]</th>
+      <th title="избыток над рублёвым carry (парковкой в ОФЗ по средней КС)">сверх carry</th>
+      <th>Сигнал</th>
+    </tr></thead>
+    <tbody id="fxrows"><tr><td colspan="9" class="muted">Загрузка с MOEX ISS…</td></tr></tbody>
   </table>
 </div>
 <p class="sub" id="bmeta"></p>
@@ -57,7 +71,9 @@
 {% block scripts %}
 <script>
 function bondRow(b) {
-  const pd = b.pd != null ? pct(b.pd) : "—";
+  const ofz = b.type === 'ОФЗ';
+  const pd = ofz ? "—" : (b.pd != null ? pct(b.pd) : "—");
+  const pdH = ofz ? "—" : (b.pd_horizon != null ? pct(b.pd_horizon) : "—");
   const cred = b.credit_ok ? "" : ' <span class="nocred">кредит ✗</span>';
   const off = b.offer ? ' <span class="muted" title="оферта — yield-to-put">оф</span>' : '';
   return `<tr>
@@ -67,28 +83,64 @@ function bondRow(b) {
     <td class="num">${pctSigned(b.real_ytm)}</td>
     <td class="num"><b>${pctSigned(b.risk_adj_yield)}</b></td>
     <td class="num">${pd}</td>
+    <td class="num">${pdH}</td>
     <td class="num">${num(b.duration_years,1)}</td>
     <td class="num"><span class="muted">${b.rate_signal}</span></td>
     <td>${sigBadge(b.signal)}</td>`;
 }
-let BDATA = null, TAB = "ОФЗ", CTYPE = "Все";
+function fxRow(b) {
+  return `<tr>
+    <td>${b.name}</td>
+    <td><span class="btype">${b.faceunit}</span></td>
+    <td class="num">${pct(b.ytm_fx)}</td>
+    <td class="num">${num(b.coupon_pct,1)}%</td>
+    <td class="num">${num(b.duration_years,1)}</td>
+    <td class="num">${pctSigned(b.e_fx_move)}</td>
+    <td class="num"><b>${pct(b.e_return_total)}</b></td>
+    <td class="num">${pctSigned(b.e_return)}</td>
+    <td>${sigBadge(b.signal)}</td>`;
+}
+let BDATA = null, FXDATA = null, TAB = "ОФЗ", CTYPE = "Все";
 function renderTab() {
   const rows = document.getElementById("brows");
   if (!BDATA) return;
-  if (BDATA.error) { rows.innerHTML = `<tr><td colspan="9" class="warn">${BDATA.error}</td></tr>`; return; }
+  if (BDATA.error) { rows.innerHTML = `<tr><td colspan="10" class="warn">${BDATA.error}</td></tr>`; return; }
   let list = BDATA.bonds.filter(b => b.type === TAB);
   if (CTYPE !== "Все") list = list.filter(b => b.coupon_type === CTYPE);
   rows.innerHTML = list.length ? list.map(bondRow).join("")
-                              : `<tr><td colspan="9" class="muted">Нет бумаг.</td></tr>`;
+                              : `<tr><td colspan="10" class="muted">Нет бумаг.</td></tr>`;
   const buy = list.filter(b => b.signal === "ПОКУПАЙ").length;
   document.getElementById("bmeta").textContent =
     `${TAB === "ОФЗ" ? "ОФЗ" : "Корпоративные"}${CTYPE !== "Все" ? " · " + CTYPE : ""}: ${list.length} бумаг, ${buy} ПОКУПАЙ.`
-    + (TAB === "Корп" ? " Дефолт-риск из рыночного спреда (интерим); рейтинг/фундаментал — фаза 2b." : "");
+    + (TAB === "Корп" ? " «Дефолт срок» = кумулятивно за дюрацию; PD под стресс-множителем макро-режима; рейтинг/фундаментал — фаза 2b." : "");
+}
+function renderFx() {
+  const rows = document.getElementById("fxrows");
+  if (!FXDATA) return;
+  if (FXDATA.error) { rows.innerHTML = `<tr><td colspan="9" class="warn">${FXDATA.error}</td></tr>`; return; }
+  const list = FXDATA.bonds || [];
+  rows.innerHTML = list.length ? list.map(fxRow).join("")
+                              : `<tr><td colspan="9" class="muted">Нет бумаг.</td></tr>`;
+  const buy = list.filter(b => b.signal === "ПОКУПАЙ").length;
+  document.getElementById("bmeta").textContent =
+    `Валюта: ${list.length} бумаг, ${buy} ПОКУПАЙ. E[курс] ${pct(FXDATA.e_fx)}/год, carry ${pct(FXDATA.carry)}. `
+    + "Бар = бить рублёвый carry. Сценарии курса — дефолтные (редактируемые позже).";
+}
+async function loadFX() {
+  document.getElementById("fxrows").innerHTML = `<tr><td colspan="9" class="muted">Загрузка с MOEX ISS…</td></tr>`;
+  FXDATA = await getJSON("/fx");
+  document.getElementById("cnt-fx").textContent = (FXDATA.bonds || []).length;
+  renderFx();
 }
 function setTab(t) {
   TAB = t;
   document.querySelectorAll(".btab").forEach(b => b.classList.toggle("on", b.dataset.tab === t));
-  renderTab();
+  const isFx = t === "Валюта";
+  document.getElementById("cfilter").style.display = isFx ? "none" : "";
+  document.getElementById("bpanel").style.display = isFx ? "none" : "";
+  document.getElementById("fxpanel").style.display = isFx ? "" : "none";
+  if (isFx) { FXDATA ? renderFx() : loadFX(); }
+  else renderTab();
 }
 document.querySelectorAll(".btab").forEach(b => b.addEventListener("click", () => setTab(b.dataset.tab)));
 document.querySelectorAll(".cbtn").forEach(b => b.addEventListener("click", () => {
@@ -106,8 +158,12 @@ async function loadBonds() {
   const c = BDATA.ofz_curve || [];
   const at = (yr) => { let best=null; for (const [dd,yy] of c) if (best===null || Math.abs(dd-yr)<Math.abs(best[0]-yr)) best=[dd,yy]; return best?pct(best[1]):"—"; };
   const dirRu = {cut:"снижение КС", hike:"рост КС", hold:"удержание"}[BDATA.rate_direction] || BDATA.rate_direction;
+  const regRu = {NORMAL:"спокойный", RISK:"риск", SHOCK:"ШОК"}[BDATA.regime] || BDATA.regime;
+  const tks = BDATA.terminal_ks != null ? ` → терминал ${pct(BDATA.terminal_ks)}` : "";
   document.getElementById("bbanner").textContent =
-    `Кривая ОФЗ ~1г ${at(1)} · ~5л ${at(5)} · ~10л ${at(10)}. Ставочный режим: ${dirRu} → длинный фикс ` +
+    `Подчинено общей макро-модели. Carry (ср. КС ${pct(BDATA.current_ks)}${tks} за ${BDATA.horizon_years}г) ${pct(BDATA.carry)} — ` +
+    `единый ориентир всех классов. Макро-режим: ${regRu} (F=${BDATA.macro_F}) → стресс-множитель PD корпоратов. ` +
+    `Кривая ОФЗ ~1г ${at(1)} · ~5л ${at(5)} · ~10л ${at(10)}. Ставка: ${dirRu} → длинный фикс ` +
     (BDATA.rate_direction==='cut'?"в плюс (capital gain).":"нейтрально/встречно.") +
     ` E[инфляция] ${pct(BDATA.e_inflation)}, защитный бар real≥0.`;
   renderTab();

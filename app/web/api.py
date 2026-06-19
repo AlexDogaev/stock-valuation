@@ -31,6 +31,13 @@ def list_bonds():
         return engine.screen_bonds(db)
 
 
+@router.get("/fx")
+def list_fx():
+    """Валютная секция: замещайки/юаневые бонды, E[отдача,₽] = FX-YTM + E[курс] − carry."""
+    with get_db() as db:
+        return engine.screen_fx(db)
+
+
 @router.get("/issuers/{secid}")
 def get_issuer(secid: str):
     with get_db() as db:

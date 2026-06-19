@@ -2,7 +2,7 @@
 
 ОФЗ-кривая строится из самих ОФЗ (дюрация→YTM) — это и есть безрисковая база (КБД), без
 зависимости от cbr.ru (там были проблемы с сертификатом). Спред корпората = YTM − ОФЗ-кривая(дюр).
-Оферта → yield-to-put (YIELDTOOFFER), не -to-maturity. Только рублёвые (валютные — в FX-модуль).
+Оферта → yield-to-put (YIELDTOOFFER), не -to-maturity. fetch_bonds(fx=True) → валютные (замещайки/юаневые).
 """
 from __future__ import annotations
 
@@ -32,9 +32,11 @@ _CACHE_TTL = 15 * 60
 _cache: dict[str, tuple[float, list[dict]]] = {}
 
 
-def fetch_bonds(board: str) -> list[dict]:
-    """Рублёвые облигации борда с YTM/дюрацией/офертой/ликвидностью (кэш 15 мин)."""
-    hit = _cache.get(board)
+def fetch_bonds(board: str, *, fx: bool = False) -> list[dict]:
+    """Облигации борда с YTM/дюрацией/офертой/ликвидностью (кэш 15 мин).
+    fx=False → рублёвые; fx=True → валютные (замещайки/юаневые: FACEUNIT ≠ RUB)."""
+    ckey = f"{board}:{'fx' if fx else 'rub'}"
+    hit = _cache.get(ckey)
     if hit and time.time() - hit[0] < _CACHE_TTL:
         return hit[1]
     url = f"{MOEX_BASE}/engines/stock/markets/bonds/boards/{board}/securities.json"
@@ -47,7 +49,8 @@ def fetch_bonds(board: str) -> list[dict]:
     out: list[dict] = []
     for s in d["securities"]["data"]:
         secid = s[sc["SECID"]]
-        if s[sc["FACEUNIT"]] not in RUB:
+        faceunit = s[sc["FACEUNIT"]]
+        if (faceunit in RUB) == fx:      # fx=True → нужны валютные; fx=False → рублёвые
             continue
         m = md.get(secid)
         ytm = (m[mc["YIELD"]] if m else None) or s[sc["YIELDATPREVWAPRICE"]]
@@ -62,9 +65,9 @@ def fetch_bonds(board: str) -> list[dict]:
             "ytm": eff_ytm / 100.0, "duration_years": round(dur_days / 365.0, 2),
             "coupon_pct": s[sc["COUPONPERCENT"]], "matdate": s[sc["MATDATE"]],
             "offer": offer or None, "num_trades": (m[mc["NUMTRADES"]] if m else 0) or 0,
-            "coupon_type": classify_coupon(s[sc["BONDTYPE"]]),
+            "coupon_type": classify_coupon(s[sc["BONDTYPE"]]), "faceunit": faceunit,
         })
-    _cache[board] = (time.time(), out)
+    _cache[ckey] = (time.time(), out)
     return out
 
 

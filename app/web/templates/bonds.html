@@ -80,7 +80,7 @@ function bondRow(b) {
     <td>${b.name}${off}${cred}</td>
     <td><span class="btype ${b.coupon_type==='Линкер'?'ofz':''}">${b.coupon_type||'—'}</span></td>
     <td class="num">${pct(b.ytm)}</td>
-    <td class="num">${pctSigned(b.real_ytm)}</td>
+    <td class="num" title="${b.coupon_type==='Линкер'?'линкер: YTM уже реальный':'номинал − инфляция за срок '+pct(b.infl_to_mat)}">${pctSigned(b.real_ytm)}</td>
     <td class="num"><b>${pctSigned(b.risk_adj_yield)}</b></td>
     <td class="num">${pd}</td>
     <td class="num">${pdH}</td>
@@ -165,7 +165,8 @@ async function loadBonds() {
     `единый ориентир всех классов. Макро-режим: ${regRu} (F=${BDATA.macro_F}) → стресс-множитель PD корпоратов. ` +
     `Кривая ОФЗ ~1г ${at(1)} · ~5л ${at(5)} · ~10л ${at(10)}. Ставка: ${dirRu} → длинный фикс ` +
     (BDATA.rate_direction==='cut'?"в плюс (capital gain).":"нейтрально/встречно.") +
-    ` E[инфляция] ${pct(BDATA.e_inflation)}, защитный бар real≥0.`;
+    ` Инфляция: сейчас ${pct(BDATA.e_inflation_now)} → терминал ${BDATA.e_inflation_terminal!=null?pct(BDATA.e_inflation_terminal):'—'} ` +
+    `(нормализация ~${BDATA.infl_norm_years}г) — реал.YTM каждой бумаги = номинал − инфляция за ЕЁ срок. Защ. бар real≥0.`;
   renderTab();
 }
 document.getElementById("brefresh").addEventListener("click", async (e) => {

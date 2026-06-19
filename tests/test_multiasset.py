@@ -3,6 +3,7 @@ from app.core.carry import carry_rate
 from app.core.credit_pd import pd_market, pd_synthesis, credit_ok
 from app.core.bonds import assess_bond, rate_signal_for
 from app.core.fx import assess_fx
+from app.core.valuation import inflation_to_maturity
 
 
 # ── carry ────────────────────────────────────────────────────────────────────
@@ -67,3 +68,18 @@ def test_bare_currency_dominated_downgraded():
 def test_fx_left_tail_captured():
     r = assess_fx(scenarios=[(0.5, 0.2), (0.5, -0.15)], carry=0.14, hurdle=0.0, buffer=0.02)
     assert r.left_tail == -0.15
+
+
+# ── срочная структура инфляции (реал. YTM к погашению) ────────────────────────
+def test_inflation_to_maturity_glides_to_terminal():
+    felt, term = 0.145, 0.09
+    short = inflation_to_maturity(felt, term, 0.5)
+    long = inflation_to_maturity(felt, term, 15)
+    assert felt > short > long > term            # короткая ближе к felt, длинная — к terminal
+    # монотонно убывает со сроком
+    seq = [inflation_to_maturity(felt, term, m) for m in (1, 2, 3, 5, 10)]
+    assert all(a > b for a, b in zip(seq, seq[1:]))
+
+
+def test_inflation_to_maturity_flat_when_no_terminal():
+    assert inflation_to_maturity(0.145, None, 10) == 0.145    # нет терминала → плоско = felt

@@ -57,6 +57,34 @@ def horizon_deflator(felt: float, terminal: float | None, years: int | None) -> 
     return prod ** (1.0 / years) - 1.0
 
 
+# Окно нормализации инфляции felt→terminal (цикл дезинфляции КС), затем плоско = terminal.
+# РФ: КС 14.5→9 ≈ 5.5пп при ~1пп/квартал → ~1.5-2 года. Тюнится здесь.
+INFLATION_NORM_YEARS = 2.0
+
+
+def inflation_to_maturity(felt: float, terminal: float | None, maturity: float,
+                          norm_years: float = INFLATION_NORM_YEARS) -> float:
+    """Средняя ожидаемая инфляция от сейчас до ПОГАШЕНИЯ бумаги (геом. среднее).
+
+    Срочная структура: инфляция глайдит felt→terminal за norm_years (цикл дезинфляции),
+    затем плоско = terminal. Короткая бумага видит в основном высокую текущую инфляцию,
+    длинная — в основном терминал. Это деривация РЕАЛЬНОЙ доходности к погашению:
+    real_YTM(M) = nominal_YTM(M) − inflation_to_maturity(M). Дополняет horizon_deflator
+    (тот фиксит терминал на годе=horizon; здесь — на конце окна дезинфляции, реалистичнее
+    для длинных бумаг).
+    """
+    if terminal is None or maturity is None or maturity <= 0:
+        return felt
+    n = max(1, round(maturity * 4))            # поквартальная сетка
+    dt = maturity / n
+    prod = 1.0
+    for i in range(n):
+        t = (i + 0.5) * dt                     # середина шага
+        infl = terminal + (felt - terminal) * max(0.0, 1.0 - t / norm_years)
+        prod *= (1.0 + infl) ** dt
+    return prod ** (1.0 / maturity) - 1.0
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Justified-мультипликаторы (зрелый режим)
 # ─────────────────────────────────────────────────────────────────────────────

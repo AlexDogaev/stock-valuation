@@ -465,7 +465,11 @@ def screen_bonds(db: sqlite3.Connection) -> dict:
     from app.data import moex_bonds as mb
     from app.core import bonds as bmod, credit_pd
     settings = get_settings(db)
-    e_infl = active_deflator_value(settings, db)
+    # СРОЧНАЯ СТРУКТУРА ИНФЛЯЦИИ: у каждой бумаги real_YTM = nominal_YTM − инфляция за ЕЁ срок
+    # (не один дефлятор на всех). Короткая видит текущую высокую инфляцию, длинная — терминал.
+    felt = settings.get("felt_inflation")
+    felt = felt if felt is not None else DEFAULTS["felt_inflation"]
+    terminal_infl = terminal_inflation(settings, db)
     # Бонды = ЗАЩИТНЫЙ рукав: бар = бить инфляцию (real≥0) + кредит, НЕ +10% таргет атаки (акций).
     # Буфер меньше (бонд контрактный, неопределённость ниже). PD_CAP — интерим кредит-фильтр по
     # РЫНОЧНОЙ PD (отсекает junk); независимая PD (рейтинг/фундаментал) = Фаза 2b.
@@ -500,12 +504,13 @@ def screen_bonds(db: sqlite3.Connection) -> dict:
     out: list[dict] = []
     for b in ofz_clean:
         is_lk = b["coupon_type"] == "Линкер"   # у линкера YTM УЖЕ реальный → не вычитать инфляцию
-        a = bmod.assess_bond(ytm=b["ytm"], e_inflation=(0.0 if is_lk else e_infl), hurdle_real=bond_hurdle,
+        infl_m = 0.0 if is_lk else valuation.inflation_to_maturity(felt, terminal_infl, b["duration_years"])
+        a = bmod.assess_bond(ytm=b["ytm"], e_inflation=infl_m, hurdle_real=bond_hurdle,
                              buffer=bond_buffer, rate_direction=rate_direction,
                              floater=(b["coupon_type"] == "Флоат"), is_ofz=True)
         out.append({**b, "type": "ОФЗ", "spread": None, "pd": 0.0, "pd_horizon": 0.0,
-                    "real_ytm": a.real_ytm, "risk_adj_yield": a.real_ytm, "rate_signal": a.rate_signal,
-                    "credit_ok": True, "signal": a.signal})
+                    "real_ytm": a.real_ytm, "risk_adj_yield": a.real_ytm, "infl_to_mat": round(infl_m, 4),
+                    "rate_signal": a.rate_signal, "credit_ok": True, "signal": a.signal})
     corp_clean = sorted([b for b in corp if mb.is_sane(b, min_dur=0.5, ytm_lo=0.06, ytm_hi=0.40, min_trades=10)
                          and b["coupon_type"] in mb.CLASSIC], key=lambda x: -x["num_trades"])[:90]
     for b in corp_clean:
@@ -515,18 +520,21 @@ def screen_bonds(db: sqlite3.Connection) -> dict:
         pd_raw = credit_pd.pd_market(spread) if spread is not None else None
         pd_ann = min((pd_raw or 0.0) * stress, 0.99)   # годовая PD под текущим макро-режимом (стресс)
         cred = pd_raw is None or pd_ann <= PD_CAP       # интерим: отсечь junk по (стресс.) PD
-        a = bmod.assess_bond(ytm=b["ytm"], e_inflation=(0.0 if is_lk else e_infl), hurdle_real=bond_hurdle,
+        infl_m = 0.0 if is_lk else valuation.inflation_to_maturity(felt, terminal_infl, b["duration_years"])
+        a = bmod.assess_bond(ytm=b["ytm"], e_inflation=infl_m, hurdle_real=bond_hurdle,
                              buffer=bond_buffer, rate_direction=rate_direction,
                              floater=(b["coupon_type"] == "Флоат"), kbd_at_duration=kbd, credit_ok_override=cred)
         pd_hz = 1.0 - (1.0 - pd_ann) ** max(b["duration_years"], 0.1)   # кумулятивная PD за срок (Q2/Q4)
         out.append({**b, "type": "Корп", "spread": round(spread, 4) if spread is not None else None,
                     "pd": round(pd_ann, 4), "pd_horizon": round(pd_hz, 4), "real_ytm": a.real_ytm,
                     "risk_adj_yield": round(a.real_ytm - pd_ann * LGD, 4),   # реал. за вычетом ожид. потерь (год)
+                    "infl_to_mat": round(infl_m, 4),
                     "rate_signal": a.rate_signal, "credit_ok": a.credit_ok, "signal": a.signal})
     out.sort(key=lambda x: (x["risk_adj_yield"] is None, -(x.get("risk_adj_yield") or -99)))  # по реал. с уч. риска
     return {"bonds": out, "count": len(out), "buy": sum(1 for b in out if b["signal"] == "ПОКУПАЙ"),
             "ofz_curve": [[d, round(y, 4)] for d, y in curve], "rate_direction": rate_direction,
-            "e_inflation": round(e_infl, 4), "bond_hurdle": bond_hurdle,
+            "e_inflation_now": round(felt, 4), "e_inflation_terminal": (round(terminal_infl, 4) if terminal_infl is not None else None),
+            "infl_norm_years": valuation.INFLATION_NORM_YEARS, "bond_hurdle": bond_hurdle,
             "carry": round(carry_val, 4), "regime": frag["regime"], "macro_F": round(frag["F"], 3),
             "current_ks": round(cur_ks, 4), "terminal_ks": (tr or {}).get("terminal_ks"),
             "horizon_years": years}

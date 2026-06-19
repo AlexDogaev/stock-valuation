@@ -29,11 +29,12 @@ def test_yandex_strong():
     assert score_multiplier(s) == 1.1
 
 
-def test_promomed_demo_strong():
-    # Фарма на старении: демо +2 детерминирован; 1+0+2+0+2 = 5 → крепкий
+def test_demo_excluded_from_score_topdown():
+    # §2 рефактор: демография TOP-DOWN (тектоника), в балл эмитента НЕ входит.
+    # 1+0+2+0 = 3 (demo=2 игнорируется — иначе двойной счёт с тектоническим множителем).
     s = structural_score(moat=1, disruption=0, tam=2, regulation=0, demo=2)
-    assert s == 5
-    assert score_multiplier(s) == 1.1
+    assert s == 3
+    assert structural_score(moat=1, disruption=0, tam=2, regulation=0, demo=0) == s  # demo не влияет
 
 
 def test_gosnaves_excluded_from_score():

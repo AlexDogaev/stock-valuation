@@ -15,8 +15,8 @@ from dataclasses import dataclass, field
 
 
 # Шкала каждого измерения: −2 (угроза) … +2 (попутно)
-DIMENSIONS = ("moat", "disruption", "tam", "regulation", "demo")
-# госнавес (gosnaves) — отдельное измерение, НЕ в балл
+DIMENSIONS = ("moat", "disruption", "tam", "regulation")
+# demo и gosnaves — отдельные измерения, НЕ в балл (см. ниже)
 
 
 def structural_score(
@@ -25,10 +25,15 @@ def structural_score(
     disruption: int,
     tam: int,
     regulation: int,
-    demo: int,
+    demo: int = 0,   # §2 рефактор: демография — TOP-DOWN (тектоника), в балл эмитента НЕ входит
 ) -> int:
-    """Балл = сумма пяти измерений (без госнавеса)."""
-    return moat + disruption + tam + regulation + demo
+    """Балл = сумма измерений БЕЗ демографии и госнавеса.
+
+    §2 тектонической рамы: демография поднята с ур.4 (эмитент) на ур.0 (top-down: базовый
+    g рынка + секторный тектонический множитель). Per-эмитентный demo-балл больше НЕ
+    суммируется (иначе двойной счёт с тектоникой); параметр оставлен для совместимости/дисплея
+    как РЕЗИДУАЛ (эмитент-специфичная демография сверх сектора — сейчас не взвешивается)."""
+    return moat + disruption + tam + regulation
 
 
 def score_zone(score: int) -> str:
@@ -96,8 +101,8 @@ def evaluate_structural(
         )
     if demo != 0:
         warnings.append(
-            "Демо-вектор детерминирован (когорта уже родилась) — оценка жёсткая, "
-            "высокая уверенность."
+            "Демография — TOP-DOWN (§2): учтена в базовом g рынка + секторном тектоническом "
+            "множителе, в балл эмитента НЕ входит (анти-двойной-счёт). Этот demo-балл — резидуал."
         )
     if disruption != 0:
         warnings.append(

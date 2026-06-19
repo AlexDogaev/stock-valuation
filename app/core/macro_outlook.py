@@ -107,15 +107,18 @@ class MacroOutlook:
         e_infl = self.e_inflation(horizon)
         if asset == "ofz":
             base = (nominal or 0.0) - e_infl
-            return {"base_real": round(base, 4), "shock_drag": 0.0, "net_real": round(base, 4)}
-        if asset == "fx":
+            res = {"base_real": round(base, 4), "shock_drag": 0.0, "net_real": round(base, 4)}
+        elif asset == "fx":
             base = (fx_ytm or 0.0) + self.e_fx() - e_infl
-            return {"base_real": round(base, 4), "shock_drag": 0.0, "net_real": round(base, 4)}
-        # equity: база = ОФЗ-реал + премия; минус драг шоков (накопленный за горизонт)
-        ofz_real = (nominal or 0.0) - e_infl
-        base = ofz_real + EQUITY_RISK_PREMIUM
-        drag = self.equity_shock_drag(horizon)
-        return {"base_real": round(base, 4), "shock_drag": round(drag, 4), "net_real": round(base - drag, 4)}
+            res = {"base_real": round(base, 4), "shock_drag": 0.0, "net_real": round(base, 4)}
+        else:  # equity: база = ОФЗ-реал + премия; минус драг шоков (накопленный за горизонт)
+            ofz_real = (nominal or 0.0) - e_infl
+            base = ofz_real + EQUITY_RISK_PREMIUM
+            drag = self.equity_shock_drag(horizon)
+            res = {"base_real": round(base, 4), "shock_drag": round(drag, 4), "net_real": round(base - drag, 4)}
+        # накопленная (total) реальная за весь горизонт: компаундинг годовой CAGR
+        res["net_real_total"] = round((1 + res["net_real"]) ** horizon - 1, 4)
+        return res
 
     def as_dict(self) -> dict:
         return {

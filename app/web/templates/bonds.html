@@ -54,7 +54,7 @@
   <div class="ol-tree" id="ol-tree"></div>
 </div>
 <div class="panel" id="scenario" style="display:none">
-  <div class="ol-title">Сценарий buy-and-hold: реальная доходность за горизонт (с уч. инфляции и шока)</div>
+  <div class="ol-title">Сценарий buy-and-hold: реальная доходность <b>годовая · всего за срок</b> (с уч. инфляции и шока)</div>
   <table class="sc-tbl">
     <thead><tr>
       <th>Горизонт</th>
@@ -209,17 +209,17 @@ async function loadScenario() {
   try { s = await getJSON("/scenario"); } catch (e) { return; }
   if (!s || !s.horizons) return;
   document.getElementById("scenario").style.display = "";
-  document.getElementById("sc-rows").innerHTML = s.horizons.map(r => {
-    const eq = r.equity ? `${pctSigned(r.equity.net_real)} <span class="muted" title="годовой драг от шоков">(−${pct(r.equity.shock_drag)})</span>` : "—";
-    return `<tr>
+  const scCell = (x, title) => x
+    ? `<span${title ? ` title="${title}"` : ""}>${pctSigned(x.net_real)} <span class="muted">· ${pctSigned(x.net_real_total)}</span></span>`
+    : "—";
+  document.getElementById("sc-rows").innerHTML = s.horizons.map(r => `<tr>
       <td>${r.horizon} лет</td>
       <td>${pct(r.p_shock_cum)}</td>
       <td>${pct(r.e_inflation)}</td>
-      <td>${r.ofz ? pctSigned(r.ofz.net_real) : "—"}</td>
-      <td>${r.fx ? pctSigned(r.fx.net_real) : "—"}</td>
-      <td>${eq}</td>
-    </tr>`;
-  }).join("");
+      <td>${scCell(r.ofz)}</td>
+      <td>${scCell(r.fx)}</td>
+      <td>${scCell(r.equity, r.equity ? "драг шоков " + pct(r.equity.shock_drag) + "/год" : "")}</td>
+    </tr>`).join("");
   const sh = s.outlook.shock, sec = s.sectoral || {}, inp = s.inputs || {};
   const secStr = Object.entries(sec).map(([k, v]) => `${k} ${pct(v)}`).join(", ");
   document.getElementById("sc-shock").innerHTML =

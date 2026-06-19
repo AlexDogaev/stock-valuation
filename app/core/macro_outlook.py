@@ -52,14 +52,16 @@ class MacroOutlook:
         return valuation.inflation_to_maturity(self.felt, self.terminal, M, norm_years=self.norm_years)
 
     def e_inflation(self, maturity: float | None = None) -> float:
-        """E[инфляция] = база + вклад шок-ветки (взвешен по p и доле срока в окне дезинфляции).
+        """E[инфляция] = база (срочная структура) + СТАЦИОНАРНЫЙ вклад шок-инфляции.
 
-        Шок «переоткрывает» дезинфляцию: повышенная инфляция держится ~norm_years. Короткая
-        бумага полностью внутри окна → весь вклад; длинная — разбавляет.
+        Шок поднимает инфляцию на infl_pp на ~norm_years. В среднем доля «шоковых» лет =
+        частота × длительность = min(1, hazard·norm_years) — учитывает ~hazard·H шоков за длинный
+        горизонт (раньше share=окно/H недосчитывал: моделировал ~один шок). Базовая дезинфляция
+        остаётся срочно-зависимой: короткая бумага видит высокую ТЕКУЩУЮ инфляцию, длинная — терминал.
         """
         M = maturity if maturity else self.horizon_years
-        share = min(self.norm_years, M) / M if M else 1.0
-        return self.base_inflation(M) + self.shock.p * self.shock.infl_pp * share
+        elevated = min(1.0, self.shock.p * self.norm_years)   # доля лет с шок-инфляцией (стационарно)
+        return self.base_inflation(M) + self.shock.infl_pp * elevated
 
     def fx_scenarios(self) -> list[tuple[float, float]]:
         """Курс-сценарии для FX (заменяют хардкод): база (дрейф ≈ инфл.дифференциал) + ветка шока."""

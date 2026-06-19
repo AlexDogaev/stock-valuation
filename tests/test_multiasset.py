@@ -92,12 +92,15 @@ def _outlook(p=0.2):
     return MacroOutlook(horizon_years=3, felt=0.14, terminal=0.06, norm_years=2.0, shock=sv)
 
 
-def test_outlook_shock_lifts_inflation_more_for_short():
+def test_outlook_shock_lifts_inflation_steadystate():
     o = _outlook()
     assert o.e_inflation(1) > o.base_inflation(1)             # шок поднимает E[инфляцию]
+    # вклад шок-инфляции СТАЦИОНАРНЫЙ (частота×длительность) — не зависит от срока (многошоково)
     short_add = o.e_inflation(1) - o.base_inflation(1)
     long_add = o.e_inflation(10) - o.base_inflation(10)
-    assert short_add > long_add                              # короткая бумага полнее в окне шока
+    assert abs(short_add - long_add) < 1e-9
+    # срочная разница идёт через БАЗУ: короткая видит выше текущую инфляцию, чем длинная (терминал)
+    assert o.base_inflation(1) > o.base_inflation(10)
 
 
 def test_outlook_fx_scenarios_tree():

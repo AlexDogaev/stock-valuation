@@ -48,7 +48,7 @@
   <div class="ol-title">Макро-прогноз на <span id="ol-h"></span> — от него считаются все доходности</div>
   <div class="ol-row">
     <div class="ol-stat"><span class="k">E[инфляция]</span><span class="v" id="ol-infl"></span></div>
-    <div class="ol-stat"><span class="k">Риск шока</span><span class="v" id="ol-pshock"></span></div>
+    <div class="ol-stat"><span class="k" id="ol-pshock-k">Риск шока</span><span class="v" id="ol-pshock"></span></div>
     <div class="ol-stat"><span class="k">E[курс ₽]</span><span class="v" id="ol-fx"></span></div>
   </div>
   <div class="ol-tree" id="ol-tree"></div>
@@ -193,13 +193,16 @@ function renderOutlook(o) {
   box.style.display = "";
   document.getElementById("ol-h").textContent = o.horizon_years + " г";
   document.getElementById("ol-infl").textContent = pct(o.e_inflation_h);
-  document.getElementById("ol-pshock").textContent = pct(o.p_shock);
+  document.getElementById("ol-pshock-k").textContent = "Риск шока за " + o.horizon_years + "г";
+  const ps = document.getElementById("ol-pshock");
+  ps.textContent = pct(o.p_shock_cum);                 // кумулятив за горизонт (меняется с горизонтом)
+  ps.title = "годовой hazard " + pct(o.p_shock) + "; кумулятив за " + o.horizon_years + "г = 1−(1−hazard)^" + o.horizon_years;
   document.getElementById("ol-fx").innerHTML = pctSigned(o.e_fx);
   const s = o.shock;
   document.getElementById("ol-tree").innerHTML =
-    `<span class="br">База ${pct(1 - o.p_shock)}:</span> дезинфляция ${pct(o.felt)} → ${o.terminal != null ? pct(o.terminal) : "—"} ` +
+    `<span class="br">База ${pct(1 - o.p_shock)}/год:</span> дезинфляция ${pct(o.felt)} → ${o.terminal != null ? pct(o.terminal) : "—"} ` +
     `за ~${o.norm_years} г <span class="muted">(${o.norm_source})</span>, E[инфл] ${pct(o.base_inflation_h)}. &nbsp;&nbsp; ` +
-    `<span class="br">Шок ${pct(o.p_shock)}:</span> инфляция +${pct(s.infl_pp)}, курс +${pct(s.fx_pct)}, КС +${pct(s.ks_pp)}, акции ${pctSigned(s.equity_dd)}.`;
+    `<span class="br">Шок ${pct(o.p_shock)}/год:</span> инфляция +${pct(s.infl_pp)}, курс +${pct(s.fx_pct)}, КС +${pct(s.ks_pp)}, акции ${pctSigned(s.equity_dd)}.`;
 }
 async function loadScenario() {
   let s;

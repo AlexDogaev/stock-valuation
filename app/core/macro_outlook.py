@@ -122,7 +122,8 @@ class MacroOutlook:
             "terminal": (round(self.terminal, 4) if self.terminal is not None else None),
             "norm_years": round(self.norm_years, 2),
             "norm_source": self.norm_source,
-            "p_shock": round(self.shock.p, 4),
+            "p_shock": round(self.shock.p, 4),                                  # годовой hazard
+            "p_shock_cum": round(self.cumulative_shock_p(self.horizon_years), 4),  # кумулятив за горизонт
             "base_inflation_h": round(self.base_inflation(), 4),
             "e_inflation_h": round(self.e_inflation(), 4),
             "shock": {"infl_pp": round(self.shock.infl_pp, 4), "fx_pct": round(self.shock.fx_pct, 4),

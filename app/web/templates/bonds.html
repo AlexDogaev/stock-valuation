@@ -53,6 +53,11 @@
   </div>
   <div class="ol-tree" id="ol-tree"></div>
 </div>
+<div class="panel" id="riskdash" style="display:none">
+  <div class="ol-title">Дашборд риска шока — forward срочная структура (движок: фон + горб + EWI)</div>
+  <div class="ol-row" id="rd-fwd"></div>
+  <div class="ol-tree" id="rd-detail"></div>
+</div>
 <div class="panel" id="scenario" style="display:none">
   <div class="ol-title">Сценарий buy-and-hold: реальная доходность <b>годовая · всего за срок</b> (с уч. инфляции и шока)</div>
   <table class="sc-tbl">
@@ -205,11 +210,29 @@ function renderOutlook(o) {
     `за ~${o.norm_years} г <span class="muted">(${o.norm_source})</span>, E[инфл] ${pct(o.base_inflation_h)}. &nbsp;&nbsp; ` +
     `<span class="br">Шок ${pct(o.p_shock)}/год:</span> инфляция +${pct(s.infl_pp)}, курс +${pct(s.fx_pct)}, КС +${pct(s.ks_pp)}, акции ${pctSigned(s.equity_dd)}.`;
 }
+function renderRiskDash(o) {
+  const box = document.getElementById("riskdash");
+  if (!o || !o.hazard || !o.hazard.forward) { box.style.display = "none"; return; }
+  box.style.display = "";
+  const f = o.hazard.forward;
+  const cells = [["1 мес", "1мес"], ["3 мес", "3мес"], ["6 мес", "6мес"], ["12 мес", "12мес"],
+                ["3 года", "3г"], ["5 лет", "5г"], ["10 лет", "10г"], ["20 лет", "20г"]];
+  document.getElementById("rd-fwd").innerHTML = cells.map(([lbl, k]) =>
+    `<div class="ol-stat"><span class="k">${lbl}</span><span class="v">${f[k] != null ? pct(f[k]) : "—"}</span></div>`).join("");
+  const h = o.hazard, t = o.typology || {}, w = t.weights || {};
+  const types = (t.types || []).map(x => `${x.label} ${pct(w[x.key] || 0)}`).join(", ");
+  document.getElementById("rd-detail").innerHTML =
+    `<span class="br">Годовой hazard:</span> ${pct(h.annual)} (${pct(h.annual_band[0])}–${pct(h.annual_band[1])}) = ` +
+    `фон ${pct(h.base_fond)} × EWI ×${num(h.ewi_multiplier, 2)} (скор ${num(h.ewi_score, 2)}) + горб ${pct(h.structural_hump)}. &nbsp;&nbsp;` +
+    `<span class="br">Природа (смесь типов):</span> доминант ${t.dominant || "—"}; ${types}.` +
+    (h.notes && h.notes.length ? `<br><span class="muted">${h.notes.join(" ")}</span>` : "");
+}
 async function loadScenario() {
   let s;
   try { s = await getJSON("/scenario"); } catch (e) { return; }
   if (!s || !s.horizons) return;
   document.getElementById("scenario").style.display = "";
+  const sp = (v) => (v >= 0 ? "+" : "") + (v * 100).toFixed(1) + "%";   // plain знак для title (без разметки)
   const scCell = (x, title) => x
     ? `<span${title ? ` title="${title}"` : ""}>${pctSigned(x.net_real)} <span class="muted">· ${pctSigned(x.net_real_total)}</span></span>`
     : "—";
@@ -222,7 +245,7 @@ async function loadScenario() {
       <td>${pct(r.e_inflation)}</td>
       <td>${scCell(r.ofz)}</td>
       <td>${scCell(r.fx)}</td>
-      <td>${scCell(r.equity, r.equity ? "драг шоков " + pct(r.equity.shock_drag) + "/год" : "")}</td>
+      <td>${r.equity ? scCell(r.equity, `вилка: база ${sp(r.equity.fork.base_real)} / шок ${sp(r.equity.fork.shock_real)} / P(шок) ${pct(r.equity.fork.p_shock)}; драг ${pct(r.equity.shock_drag)}/год`) + ` <span class="muted" title="геом.среднее по вилке (штрафует глубокий хвост) — скаляр ранжирования">г ${pctSigned(r.equity.geom_real)}</span>` : "—"}</td>
       <td>${scCell(r.equity_lstress, "L-кризис без отскока (recovery=0)")}</td>
     </tr>`).join("");
   const sh = s.outlook.shock, sec = s.sectoral || {}, inp = s.inputs || {};
@@ -240,6 +263,7 @@ async function loadBonds() {
   BDATA = await getJSON("/bonds");
   if (BDATA.error) { renderTab(); return; }
   renderOutlook(BDATA.outlook);
+  renderRiskDash(BDATA.outlook);
   document.getElementById("cnt-ofz").textContent = BDATA.bonds.filter(b => b.type === "ОФЗ").length;
   document.getElementById("cnt-corp").textContent = BDATA.bonds.filter(b => b.type === "Корп").length;
   const c = BDATA.ofz_curve || [];

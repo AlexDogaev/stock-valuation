@@ -49,6 +49,8 @@ class MacroOutlook:
     norm_years: float           # окно дезинфляции — ВЫВОДИТСЯ из траектории/риторики, НЕ хардкод
     shock: ShockVector
     norm_source: str = ""       # источник окна: Opus/риторика | темп траектории | резерв
+    hazard: dict = field(default_factory=dict)      # движок: forward срочная структура + EWI (дашборд)
+    typology: dict = field(default_factory=dict)    # смесь типов шока (дашборд)
 
     def base_inflation(self, maturity: float | None = None) -> float:
         """Базовая ожидаемая инфляция за срок (срочная структура felt→terminal за norm_years)."""
@@ -150,44 +152,39 @@ class MacroOutlook:
             "shock": {"infl_pp": round(self.shock.infl_pp, 4), "fx_pct": round(self.shock.fx_pct, 4),
                       "ks_pp": round(self.shock.ks_pp, 4), "equity_dd": round(self.shock.equity_dd, 4),
                       "recovery_1y": round(self.shock.recovery_1y, 4), "sectoral": self.shock.sectoral},
+            "hazard": self.hazard,            # forward срочная структура 1/3/6/12мес + EWI + горб (дашборд)
+            "typology": self.typology,        # смесь типов шока + доминирующий (дашборд)
             "e_fx": round(self.e_fx(), 4),
         }
 
 
-def _shock_vector(db) -> ShockVector:
-    """Шок-вектор из Opus (get_shock), с КАЛИБРОВКОЙ 2014/2022 как дефолтами.
-
-    p — ГОДОВОЙ hazard (aggregate_pct = вероятность шока за 12 мес). equity_dd — УСЛОВНАЯ просадка
-    (imoex_drawdown_pct), НЕ expected_damage (то — безусловное p×severity)."""
-    p = infl = fx = ks = eqdd = rec = sect = None
+def _json(s):
+    import json
     try:
-        from app.core import llm_macro
-        sh = llm_macro.get_shock(db) or {}
-        agg = sh.get("aggregate_pct")
-        p = (agg / 100.0) if agg is not None else None
-        infl, fx, ks = sh.get("shock_infl_pp"), sh.get("shock_fx_pct"), sh.get("shock_ks_pp")
-        dd = sh.get("imoex_drawdown_pct")
-        eqdd = -(dd / 100.0) if dd is not None else None
-        rec = sh.get("recovery_1y")
-        sect = sh.get("sectoral")
-    except Exception:  # noqa: BLE001 — прогноз не должен ронять сервис
-        pass
-    if p is None:
-        try:
-            from app.data.minfin import current_regime
-            reg = current_regime().get("regime", "NORMAL")
-        except Exception:  # noqa: BLE001
-            reg = "NORMAL"
-        p = REGIME_P_SHOCK.get(reg, 0.10)
-    return ShockVector(
-        p=p,
-        infl_pp=infl if infl is not None else DEFAULT_SHOCK["infl_pp"],
-        fx_pct=fx if fx is not None else DEFAULT_SHOCK["fx_pct"],
-        ks_pp=ks if ks is not None else DEFAULT_SHOCK["ks_pp"],
-        equity_dd=eqdd if eqdd is not None else DEFAULT_SHOCK["equity_dd"],
-        recovery_1y=rec if rec is not None else DEFAULT_SHOCK["recovery_1y"],
-        sectoral=sect if isinstance(sect, dict) and sect else dict(SECTORAL_DD),
-    )
+        return json.loads(s) if s else None
+    except (ValueError, TypeError):
+        return None
+
+
+def _shock_from_engine(settings, year: int):
+    """Шок-вектор из ТИПОЛОГИИ (смесь 5 типов) + hazard из ДВИЖКА (фон+горб+EWI). REVIEW C2/C3.
+
+    Заменяет одну цифру Opus движком: природа = смесь типов (убирает V-bias, держит L),
+    вероятность = базовый_фон×EWI + структурный_горб. Веса/EWI — из настроек (ручной/Opus),
+    иначе дефолты. Возвращает (ShockVector, hazard_result, typology_blend)."""
+    from app.core import shock_typology as st, hazard_engine as he
+    weights = _json(settings.get("shock_weights_json"))
+    ewi = _json(settings.get("ewi_json"))
+    blend = st.blend(weights)
+    hr = he.compute_hazard(year=year, ewi=ewi)
+    sv = ShockVector(
+        p=hr.annual, infl_pp=blend["infl_pp"], fx_pct=blend["fx_pct"], ks_pp=blend["ks_pp"],
+        equity_dd=blend["equity_dd"], recovery_1y=blend["recovery_1y"], sectoral=dict(SECTORAL_DD))
+    typ = {"weights": blend["weights"], "dominant": blend["dominant"], "types": st.types_table()}
+    haz = {"annual": hr.annual, "annual_band": hr.annual_band, "base_fond": hr.base_fond,
+           "structural_hump": hr.structural_hump, "ewi_score": hr.ewi_score,
+           "ewi_multiplier": hr.ewi_multiplier, "forward": hr.forward, "notes": hr.notes}
+    return sv, haz, typ
 
 
 def _norm_years(db) -> tuple[float, str]:
@@ -211,7 +208,8 @@ def _norm_years(db) -> tuple[float, str]:
 
 
 def build_outlook(db, horizon: int | None = None) -> MacroOutlook:
-    """Собрать макро-прогноз на горизонт из настроек (инфляция) + Opus (траектория КС, шок)."""
+    """Собрать макро-прогноз: инфляция (срочн.структура) + ДВИЖОК шока (фон+горб+EWI) + ТИПОЛОГИЯ."""
+    from datetime import date
     from app.data.db import get_settings
     from app.core.engine import terminal_inflation, DEFAULTS, FORECAST_YEARS
     settings = get_settings(db)
@@ -220,5 +218,6 @@ def build_outlook(db, horizon: int | None = None) -> MacroOutlook:
     felt = felt if felt is not None else DEFAULTS["felt_inflation"]
     terminal = terminal_inflation(settings, db)
     norm_years, norm_source = _norm_years(db)
-    return MacroOutlook(horizon_years=years, felt=felt, terminal=terminal,
-                        norm_years=norm_years, norm_source=norm_source, shock=_shock_vector(db))
+    shock, haz, typ = _shock_from_engine(settings, date.today().year)
+    return MacroOutlook(horizon_years=years, felt=felt, terminal=terminal, norm_years=norm_years,
+                        norm_source=norm_source, shock=shock, hazard=haz, typology=typ)

@@ -53,6 +53,34 @@ def scenario():
         return engine.scenario_table(db)
 
 
+class RiskInputs(BaseModel):
+    """Ручной контроль движка шока: EWI, индекс интеграции, веса типологии."""
+    ewi: dict | None = None
+    integration: dict | None = None
+    shock_weights: dict | None = None
+
+
+@router.put("/risk_inputs")
+def update_risk_inputs(body: RiskInputs):
+    """Записать EWI/интеграцию/веса типологии (иначе движок на интерим-дефолтах)."""
+    import json
+    patch = {}
+    if body.ewi is not None:
+        patch["ewi_json"] = json.dumps(body.ewi, ensure_ascii=False)
+    if body.integration is not None:
+        patch["integration_json"] = json.dumps(body.integration, ensure_ascii=False)
+    if body.shock_weights is not None:
+        patch["shock_weights_json"] = json.dumps(body.shock_weights, ensure_ascii=False)
+    if not patch:
+        raise HTTPException(400, "Нет полей")
+    with get_db() as db:
+        cols = ", ".join(f"{k} = ?" for k in patch)
+        db.execute(f"UPDATE user_settings SET {cols} WHERE id = 1", tuple(patch.values()))
+    from app.core import macro_outlook as mo
+    with get_db() as db:
+        return mo.build_outlook(db).as_dict()
+
+
 @router.get("/issuers/{secid}")
 def get_issuer(secid: str):
     with get_db() as db:

@@ -195,6 +195,7 @@ function render(x) {
     </section>
     ${metricEvalBlock(x)}
     ${macroTiltLine(x)}
+    ${x.integration ? `<div class="sub" style="font-size:12px;margin-top:6px" title="${x.integration.note}">Интеграция РФ→мир: терминальный P/E ×${num(x.integration.terminal_pe_mult,2)} (норм. P/E ${num(x.integration.normal_pe_eff,1)}); автаркия ${num(x.integration.autarky,2)} — фин.деизоляция снимает геодисконт P/E (D2).</div>` : ''}
     <button class="vtoggle" id="toggle-details" type="button">Индикаторы +</button>`;
 
   // ── ПОД КНОПКОЙ «ИНДИКАТОРЫ»: всё остальное ──

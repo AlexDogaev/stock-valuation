@@ -401,8 +401,17 @@ def evaluate_issuer(db: sqlite3.Connection, secid: str, macro_frag: dict | None 
 
     # тест «аванс в цене» (§7): какую прибыль имплицирует капа при нормальном P/E.
     # Убыток/околоноль или кратное превышение → оптимизм заложен в цену.
-    opt = valuation.optimism_priced_in(cap_bln=cap_bln, net_profit_bln=net_profit,
-                                       normal_pe=settings.get("normal_pe") or valuation.NORMAL_PE)
+    # D2 интеграция: финансовая деизоляция → терминальный P/E вверх (лечит «вечный геодисконт»)
+    import json as _json_mod
+    from app.core import integration as integ
+    try:
+        _ic = _json_mod.loads(settings.get("integration_json")) if settings.get("integration_json") else None
+    except (ValueError, TypeError):
+        _ic = None
+    _base_pe = settings.get("normal_pe") or valuation.NORMAL_PE
+    _integ = integ.assess(_ic, base_pe=_base_pe)
+    normal_pe_eff = _base_pe * _integ.terminal_pe_mult
+    opt = valuation.optimism_priced_in(cap_bln=cap_bln, net_profit_bln=net_profit, normal_pe=normal_pe_eff)
     optimism_flag = bool(opt and opt.flag)
     if opt and opt.flag:
         if opt.ratio is None:
@@ -478,6 +487,8 @@ def evaluate_issuer(db: sqlite3.Connection, secid: str, macro_frag: dict | None 
         "shock_equity": {"drag_h": round(outlook.equity_shock_drag(n), 4),
                          "drag_h_lstress": round(outlook.equity_shock_drag(n, recovery=0.0), 4),
                          "hazard": round(outlook.shock.p, 4), "horizon": n},
+        "integration": {"terminal_pe_mult": _integ.terminal_pe_mult, "normal_pe_eff": round(normal_pe_eff, 2),
+                        "riskoff_channel": _integ.riskoff_channel, "autarky": _integ.autarky_index, "note": _integ.note},
         "needs_review": bool(r["needs_review"]),
         "tail_risk": {"max_severity": trisk.max_severity, "gate": trisk.gate,
                       "flags": trisk.flags, "notes": trisk.notes},
@@ -634,19 +645,31 @@ def scenario_table(db: sqlite3.Connection, horizons=(3, 5, 10, 20)) -> dict:
         fx_ytm = fxb[0]["ytm"] if fxb else None
     except Exception:  # noqa: BLE001
         pass
+    from app.core import ranking
     rows = []
     for H in horizons:
         lo, hi = ol.cumulative_shock_p_range(H)
+        pc = ol.cumulative_shock_p(H)
+        ofz = (ol.real_return("ofz", H, nominal=long_ytm) if long_ytm else None)
+        fx = (ol.real_return("fx", H, fx_ytm=fx_ytm) if fx_ytm else None)
+        eq = (ol.real_return("equity", H, nominal=long_ytm) if long_ytm else None)
+        eql = (ol.real_return("equity", H, nominal=long_ytm, recovery=0.0) if long_ytm else None)
+        # A4 ВИЛКА + A5 ГЕОМ-СКАЛЯР: ранжирование по геом.среднему (штрафует глубокий хвост).
+        # equity шок-ветвь = L-стресс (без отскока); ОФЗ/FX хвост мелкий → geom≈net.
+        if eq:
+            eq["fork"] = ranking.fork(pc, eq["base_real"], (eql["net_real"] if eql else eq["net_real"]))
+            eq["geom_real"] = eq["fork"]["geom_real"]
+        if ofz:
+            ofz["geom_real"] = ofz["net_real"]
+        if fx:
+            fx["geom_real"] = fx["net_real"]
         rows.append({
             "horizon": H,
-            "p_shock_cum": round(ol.cumulative_shock_p(H), 4),
+            "p_shock_cum": round(pc, 4),
             "p_shock_cum_band": [lo, hi],                         # интервал (red-team #1)
             "e_inflation": round(ol.e_inflation(H), 4),
-            "ofz": (ol.real_return("ofz", H, nominal=long_ytm) if long_ytm else None),
-            "fx": (ol.real_return("fx", H, fx_ytm=fx_ytm) if fx_ytm else None),
-            "equity": (ol.real_return("equity", H, nominal=long_ytm) if long_ytm else None),
-            # L-кризис стресс (без отскока, recovery=0) — худший случай на длинном горизонте (#6)
-            "equity_lstress": (ol.real_return("equity", H, nominal=long_ytm, recovery=0.0) if long_ytm else None),
+            "ofz": ofz, "fx": fx, "equity": eq,
+            "equity_lstress": eql,                                # L-кризис без отскока (#6)
         })
     return {"horizons": rows, "outlook": ol.as_dict(), "sectoral": ol.shock.sectoral,
             "advisory_note": mo.ADVISORY_NOTE,

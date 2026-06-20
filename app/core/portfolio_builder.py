@@ -11,6 +11,8 @@
 """
 from __future__ import annotations
 
+import math
+
 from app.core import macro_outlook as mo
 
 AGGRESSIVENESS = {
@@ -24,6 +26,8 @@ DEEP_DD = 0.55            # глубокая (L-образная) просадк
 CORP_SHOCK_LOSS = 0.18   # условная потеря корп-бонда в шоке (всплеск дефолтов/спредов)
 LGD = 0.65
 # клин личная:официальная инфляция — канон в macro_outlook.ROSSTAT_RATIO (линкеры индексируются на офиц.CPI)
+# Годовая вола РЕАЛЬНОЙ доходности по классам (ОБЫЧНАЯ дисперсия = диффузия поверх макро-сценариев-прыжков).
+REAL_VOL = {"Акция": 0.22, "Облигация": 0.06, "Замещайка": 0.12}
 
 
 def _fisher_real(nominal: float, inflation: float) -> float:
@@ -152,15 +156,29 @@ def build(db, *, horizon: int, equity_cap: float, exp_inflation: float, target_r
 
     def _cum(dd):                                                   # накопл. реал в шоке = просадка + инфл-эрозия
         return (1.0 + base_cum) * (1.0 - dd) - 1.0 - infl_erosion
-    scen = [                                                        # (вероятность, накопл. реал за горизонт)
+    scen = [                                                        # (вероятность, СРЕДНЯЯ накопл. реал)
         (1.0 - p_shock, base_cum),                                 # без шока
         (p_shock * p_norm, _cum(central_dd)),                      # нормальный шок (V-отскок)
         (p_shock * p_deep, _cum(deep_dd)),                         # глубокий
         (p_shock * p_L,    _cum(cat_dd)),                          # L-катастрофа (без отскока)
     ]
-    miss_infl_risk = round(sum(pr for pr, rc in scen if rc < 0.0), 4)        # P(реал<0) — не обыграть инфляцию
-    loss50_risk    = round(sum(pr for pr, rc in scen if rc < -0.50), 4)      # P(потеря ≥50% реала)
-    wipeout_risk   = round(sum(pr for pr, rc in scen if rc <= -0.90), 4)     # P(обнуление ≥90%)
+    # ОБЫЧНАЯ дисперсия (диффузия) ВНУТРИ каждого сценария: акции волатильны и БЕЗ макро-шока
+    # (промах прибыли/дерейтинг). σ кумул = вола классов · √H. Не заменяет хвост (прыжки в scen),
+    # а добавляет ординарный разброс → портфель с акциями НЕ может иметь 0% риска. Φ монотонна →
+    # вложенность miss ≥ loss50 ≥ wipeout сохраняется (пороги 0 > −0.5 > −0.9).
+    sigma_annual = sum(h["weight"] * REAL_VOL.get(h["asset"], 0.0) for h in holdings)   # коррелир. (консерв.)
+    sigma_cum = sigma_annual * math.sqrt(max(1, horizon))
+
+    def _phi(x):
+        return 0.5 * (1.0 + math.erf(x / math.sqrt(2.0)))
+
+    def _p_below(thr):                                              # P(накопл.реал < thr) по прыжкам + диффузия
+        if sigma_cum < 1e-6:
+            return sum(pr for pr, rc in scen if rc < thr)
+        return sum(pr * _phi((thr - rc) / sigma_cum) for pr, rc in scen)
+    miss_infl_risk = round(_p_below(0.0), 4)        # P(реал<0) — не обыграть инфляцию ⊇
+    loss50_risk    = round(_p_below(-0.50), 4)      # P(потеря ≥50% реала)                ⊇
+    wipeout_risk   = round(_p_below(-0.90), 4)      # P(обнуление ≥90%)
 
     meets_target = exp_real >= target_real
 

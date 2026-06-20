@@ -66,7 +66,7 @@
         <th data-k="gf" class="col-extra">g итог</th>
         <th data-k="comp" class="col-extra">Сжатие</th>
         <th data-k="nom" class="col-extra">Полная</th>
-        <th data-k="real">Реал.</th>
+        <th data-k="real" title="Реальная доходность С УЧЁТОМ шок-просадки (горизонтный драг вычтен из базовой; глубина масштабирована валютным профилем). Наведи на ячейку — база без шока + размер драга.">Реал.✻</th>
         <th data-k="target" class="col-extra" title="Прогнозная цена котировки через 3 года">Цель 3г, ₽</th>
         <th data-k="upside" title="Рост котировки за 3 года (без дивидендов)">Апсайд 3г</th>
         <th data-k="mult" class="col-extra">Структ.×</th>
@@ -108,7 +108,7 @@ function rowCells(x) {
       <td class="num col-extra">${pct(x.calc.g_final)}</td>
       <td class="num col-extra">${num(x.calc.compression)}</td>
       <td class="num col-extra">${pct(x.calc.full_nominal)}</td>
-      <td class="num">${pctSigned(x.real_return)}</td>
+      <td class="num"${x.real_return_base != null ? ` title="база (без шока) ${(x.real_return_base * 100).toFixed(1)}% − драг шок-просадки ${((x.shock_drag || 0) * 100).toFixed(1)}пп"` : ""}>${pctSigned(x.real_return)}</td>
       <td class="num col-extra">${x.forecast.price_target !== null ? Math.round(x.forecast.price_target).toLocaleString("ru") : "—"}</td>
       <td class="num">${pctSigned(x.forecast.price_upside)}</td>
       <td class="num col-extra">${num(x.structural.multiplier, 2)}</td>

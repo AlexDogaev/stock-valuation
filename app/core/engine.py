@@ -275,7 +275,12 @@ def evaluate_issuer(db: sqlite3.Connection, secid: str, macro_frag: dict | None 
                        iis3=bool(settings.get("iis3", 0)))
     at_real = valuation.real_return(at.after_tax_nominal, deflator)
     tax_aware = bool(settings.get("tax_aware", 1))
-    eff_real = at_real if tax_aware else fr.real
+    eff_real_base = at_real if tax_aware else fr.real      # базовая реал. (шока-просадки нет)
+    # ШОК-СКОРРЕКТИРОВАННАЯ реал. (Саша): вычитаем горизонтный драг просадки шока (equity_shock_drag).
+    # Глубина просадки масштабируется валютным профилем (экспортёр мельче — хедж девальвации, A5 dom/export).
+    _DD_SCALE = {"EXPORTER": 0.5, "MIXED": 0.8, "DOMESTIC": 1.0}
+    _eq_drag = outlook.equity_shock_drag(n) * _DD_SCALE.get(currency_profile, 0.8)
+    eff_real = eff_real_base - _eq_drag                    # показываемая «РЕАЛ.» — с учётом шок-просадки
 
     price_cagr = (1.0 + fr.g_final) * fr.compression - 1.0  # ценовой CAGR (без дивов)
     price_target = r["price"] * (1.0 + price_cagr) ** n if r["price"] else None
@@ -286,7 +291,8 @@ def evaluate_issuer(db: sqlite3.Connection, secid: str, macro_frag: dict | None 
         "price_target": round(price_target, 2) if price_target else None,
         "price_upside": (1.0 + price_cagr) ** n - 1.0,            # рост котировки
         "total_return": (1.0 + fr.full_nominal) ** n - 1.0,       # с дивидендами (валовое)
-        "real_return": (1.0 + eff_real) ** n - 1.0,               # над инфляцией, посленалогово
+        "real_return": (1.0 + eff_real) ** n - 1.0,               # над инфляцией, посленалогово, С УЧ. ШОКА
+        "real_return_base": (1.0 + eff_real_base) ** n - 1.0,     # без шок-просадки (база)
     }
 
     warnings = list(fr.notes) + list(struct_res.warnings)
@@ -308,12 +314,12 @@ def evaluate_issuer(db: sqlite3.Connection, secid: str, macro_frag: dict | None 
             f"Макро-поправка hurdle {macro_delta*100:+.1f}пп "
             f"({'осторожнее' if macro_delta > 0 else 'агрессивнее'}): "
             f"ФНБ деваль {macro_frag['deval_score']}/6, риск ШОКа {macro_frag['shock_pct']}%.")
-    _eq_drag = outlook.equity_shock_drag(n)
     if _eq_drag >= 0.005:
         warnings.append(
-            f"Шок входит ДВУМЯ разными дверьми (НЕ двойной счёт): (1) шок-ИНФЛЯЦИЯ уже в дефляторе "
-            f"{deflator*100:.1f}%; (2) шок-ПРОСАДКА — forward-тилт hurdle (купить СЕЙЧАС) + горизонтная "
-            f"стоимость ≈{_eq_drag*100:.1f}%/год в сценарии (держать {n}г). Разные эффекты, разные вопросы.")
+            f"Показанная РЕАЛ. — С УЧЁТОМ ШОКА: из базовой {eff_real_base*100:+.1f}% вычтен горизонтный "
+            f"драг шок-просадки −{_eq_drag*100:.1f}%/год ({currency_profile}-масштаб глубины) → {eff_real*100:+.1f}%. "
+            f"Шок-ИНФЛЯЦИЯ — уже в дефляторе {deflator*100:.1f}%. СИГНАЛ — на базовой + forward-тилт hurdle "
+            f"(просадку для решения держит тилт, не задваивая драг).")
     if macro_frag["F"] > MACRO_F0 and currency_profile != "MIXED":
         warnings.append(
             "Экспортёр (выручка в валюте): девальвация в плюс — штраф макро снижен, в RISK ДЕРЖАТЬ как хедж."
@@ -367,9 +373,10 @@ def evaluate_issuer(db: sqlite3.Connection, secid: str, macro_frag: dict | None 
             f"Посленалогово: реал {fr.real*100:.1f}%→{at_real*100:.1f}% "
             f"({at.note}); сигнал и сравнение с таргетом — на чистой основе.")
 
-    # сигнал — троичный на ЭФФЕКТИВНОЙ (посленалоговой при tax_aware) реальной доходности
+    # сигнал — троичный на БАЗОВОЙ реал. (без шок-драга): просадку шока для РЕШЕНИЯ держит F-тилт
+    # hurdle (forward-осторожность), драг же уже сидит в ПОКАЗЫВАЕМОЙ eff_real — задваивать нельзя.
     signal = valuation.ternary_signal(
-        eff_real, valuation.effective_hurdle(hurdle_eff, settings["regime"]), settings["buffer"])
+        eff_real_base, valuation.effective_hurdle(hurdle_eff, settings["regime"]), settings["buffer"])
     # качественный гейт (owner-rule): «обычное» качество НЕ может быть ПОКУПАЙ.
     # Защита от value-trap и завышенного сигнала (фантомные/разовые дивы, дешёвые
     # некачественные имена). Понижаем на одну ступень: ПОКУПАЙ → ГРАНИЦА.
@@ -496,8 +503,11 @@ def evaluate_issuer(db: sqlite3.Connection, secid: str, macro_frag: dict | None 
         "tectonic": {"period": tect.period, "g_market_base": tect.g_market_base,
                      "sector_delta": tect.sector_delta, "routed": tect.routed,
                      "peak_period": tect.peak_period, "note": tect.note},
-        "real_return": eff_real,
+        "real_return": eff_real,                  # ПОКАЗЫВАЕМАЯ — с учётом шок-просадки (драг вычтен)
+        "real_return_base": eff_real_base,        # базовая (без шока) — для прозрачности/тултипа
+        "shock_drag": round(_eq_drag, 4),
         "classification": classification,
+
         "mature": mature,
         "warnings": warnings,
     }

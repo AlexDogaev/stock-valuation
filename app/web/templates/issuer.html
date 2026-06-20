@@ -151,7 +151,7 @@ function render(x) {
          ${kv("Прогнозная цена через "+f.years+" г", f.price_target!==null?f.price_target+" ₽":"—", "проекция тела")}
          ${kv("Апсайд цены (котировка)", pctSigned(f.price_upside), "без дивидендов")}</div>
     <div>${kv("Полная доходность за "+f.years+" г", pctSigned(f.total_return), "с дивидендами")}
-         ${kv("Реальная за "+f.years+" г", pctSigned(f.real_return), "над инфляцией")}
+         ${kv("Реальная за "+f.years+" г ✻", pctSigned(f.real_return), "над инфляцией, с уч. шок-просадки"+(f.real_return_base!=null?` (база ${(f.real_return_base*100).toFixed(0)}%)`:""))}
          ${kv("Ценовой рост, %/год", pct(f.price_cagr))}</div>
     </div>
     <p class="sub">Цена котировки растёт на рост тела × сжатие мультипликатора — дивиденды в неё НЕ входят
@@ -186,7 +186,7 @@ function render(x) {
     <section class="vmetrics">
       <div class="vmetric"><span class="vm-k">Цена</span><span class="vm-v">${priceStr}</span></div>
       <div class="vmetric"><span class="vm-k">P / E</span><span class="vm-v">${m.pe!==null?m.pe:(m.loss?"убыток":"н/д")}</span></div>
-      <div class="vmetric"><span class="vm-k">Реальная · год</span><span class="vm-v">${pctSigned(x.real_return)}</span></div>
+      <div class="vmetric" title="${x.real_return_base!=null?`с учётом шок-просадки: база ${(x.real_return_base*100).toFixed(1)}% − драг ${((x.shock_drag||0)*100).toFixed(1)}пп`:''}"><span class="vm-k">Реальная · год ✻</span><span class="vm-v">${pctSigned(x.real_return)}</span></div>
       <div class="vmetric"><span class="vm-k">Апсайд · ${f.years} г</span><span class="vm-v">${pctSigned(f.price_upside)}</span></div>
     </section>
     <section class="vrationale">

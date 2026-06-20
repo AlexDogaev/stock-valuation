@@ -41,9 +41,10 @@ def build(db, *, horizon: int, equity_cap: float, exp_inflation: float, target_r
     lstag_w = tw.get("lstag", 0.10)
 
     # ── АКЦИИ: проходящие (сигнал не «воздержись», качество не «обычное», не обнуляющий гейт) ──
+    macro_frag = engine.macro_fragility(db)   # ОДИН раз на всю вселенную (не дёргать MOEX по 50× — как в скринере)
     eq_candidates = []
     for row in db.execute("SELECT secid FROM issuers").fetchall():
-        x = engine.evaluate_issuer(db, row["secid"])
+        x = engine.evaluate_issuer(db, row["secid"], macro_frag=macro_frag)
         if not x or x["signal"] == "ВОЗДЕРЖИСЬ":
             continue
         if x["quality_marker"] == "ordinary" or (x.get("tail_risk") or {}).get("gate") == "block":

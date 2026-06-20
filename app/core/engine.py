@@ -104,6 +104,10 @@ def macro_fragility(db: sqlite3.Connection) -> dict:
 # (выручка в валюте), поэтому в хрупком макро его штрафуем меньше; внутреннее имя — полный
 # штраф (в RISK режут первым). Спит при здоровом макро (F≤F0 → бонус общий).
 CURRENCY_FRAGILITY = {"EXPORTER": 0.3, "MIXED": 0.7, "DOMESTIC": 1.0}
+# Градуированная премия к hurdle за обнуляющие риски (аудит v2 #6): гейт бинарен, но «повышенный»
+# риск экспроприации/делистинга/неликвидности требует БОЛЬШЕ премии. Σ severity (0..10) × pp, cap.
+TAIL_PREMIUM_PP = 0.012     # +1.2пп к hurdle за каждый балл обнуляющего риска
+TAIL_PREMIUM_CAP = 0.05     # потолок премии (выше — гейт всё равно снимет сигнал)
 
 
 def macro_hurdle_delta(F: float, qmark: str, currency_profile: str = "MIXED") -> float:
@@ -187,13 +191,20 @@ def evaluate_issuer(db: sqlite3.Connection, secid: str, macro_frag: dict | None 
     if macro_frag is None:
         macro_frag = macro_fragility(db)
     currency_profile = r["currency_profile"] or "MIXED"
+    # ОБНУЛЯЮЩИЕ РФ-РИСКИ (red-team #5): гейт сигнала + ГРАДУИРОВАННАЯ премия к hurdle (аудит v2 #6 —
+    # повышенный-но-не-острый риск требует больше премии, не только бинарный гейт). Считаем ДО сигнала.
+    trisk = tail_risk.assess_tail_risk(
+        minority=r["minority_risk"] or 0, expropriation=r["expropriation_risk"] or 0,
+        delisting=r["delisting_risk"] or 0, sanctions=r["sanctions_risk"] or 0,
+        liquidity=r["liquidity_risk"] or 0)
+    tail_premium = min(TAIL_PREMIUM_CAP, sum(trisk.flags.values()) * TAIL_PREMIUM_PP)
     # тектоническая поправка к g (рама §1-7): сектор × ТЕКУЩАЯ пятилетка, маршрут по валюте.
     # EXPORTER → 0 (РФ-демография в их спрос не идёт). Коридор −1.5…+3пп (намеренно скромен —
     # тектоника двигает g медленно; щедрый множитель задвоил бы то, что рынок уже знает).
     tect = tectonic.tectonic_g(r["sector"], currency_profile, year=date.today().year, secid=r["secid"])
     g_eff = g_base + tect.sector_delta
     macro_delta = macro_hurdle_delta(macro_frag["F"], qmark, currency_profile)
-    hurdle_eff = settings["hurdle"] + macro_delta
+    hurdle_eff = settings["hurdle"] + macro_delta + tail_premium
 
     # требуемая доходность r (для теста достоверности зоны)
     asset_premium = 0.05 if (r["etype"] or "").startswith("раст") else 0.0
@@ -398,12 +409,8 @@ def evaluate_issuer(db: sqlite3.Connection, secid: str, macro_frag: dict | None 
         warnings.append(f"Сигнал снят ПОКУПАЙ→ВОЗДЕРЖИСЬ: риск ШОКа {sp_:.0f}% ≥ {SHOCK_NO_BUY:.0f}% — "
                         f"системно покупать нет смысла (держать порох сухим до реализации шока).")
 
-    # ОБНУЛЯЮЩИЕ РФ-РИСКИ (red-team #5): экспроприация/делистинг/санкц.заморозка/миноритарий/
-    # неликвидность — режут ТЕЛО, MoS не спасает. Острый → ВОЗДЕРЖИСЬ; повышенный → ПОКУПАЙ→ГРАНИЦА.
-    trisk = tail_risk.assess_tail_risk(
-        minority=r["minority_risk"] or 0, expropriation=r["expropriation_risk"] or 0,
-        delisting=r["delisting_risk"] or 0, sanctions=r["sanctions_risk"] or 0,
-        liquidity=r["liquidity_risk"] or 0)
+    # ОБНУЛЯЮЩИЕ РФ-РИСКИ (red-team #5, trisk посчитан выше): режут ТЕЛО, MoS не спасает.
+    # Острый → ВОЗДЕРЖИСЬ; повышенный → ПОКУПАЙ→ГРАНИЦА. Плюс градуированная премия уже в hurdle (#6).
     if trisk.gate == "block" and signal != "ВОЗДЕРЖИСЬ":
         signal = "ВОЗДЕРЖИСЬ"
         warnings.append("Сигнал снят → ВОЗДЕРЖИСЬ: ОСТРЫЙ обнуляющий риск (режет тело, MoS не спасает) — "
@@ -411,6 +418,8 @@ def evaluate_issuer(db: sqlite3.Connection, secid: str, macro_frag: dict | None 
     elif trisk.gate == "cap" and signal == "ПОКУПАЙ":
         signal = "ГРАНИЦА"
         warnings.append("Сигнал понижен ПОКУПАЙ→ГРАНИЦА: повышенный обнуляющий риск — " + "; ".join(trisk.notes))
+    if tail_premium >= 0.005:
+        warnings.append(f"Премия за обнуляющий риск +{tail_premium*100:.1f}пп к hurdle (градуированно по тяжести, аудит v2 #6).")
 
     # тест «аванс в цене» (§7): какую прибыль имплицирует капа при нормальном P/E.
     # Убыток/околоноль или кратное превышение → оптимизм заложен в цену.

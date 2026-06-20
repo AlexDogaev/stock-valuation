@@ -11,8 +11,6 @@
 """
 from __future__ import annotations
 
-import math
-
 from app.core import macro_outlook as mo
 
 AGGRESSIVENESS = {
@@ -26,8 +24,6 @@ DEEP_DD = 0.55            # глубокая (L-образная) просадк
 CORP_SHOCK_LOSS = 0.18   # условная потеря корп-бонда в шоке (всплеск дефолтов/спредов)
 LGD = 0.65
 # клин личная:официальная инфляция — канон в macro_outlook.ROSSTAT_RATIO (линкеры индексируются на офиц.CPI)
-# Годовая вола РЕАЛЬНОЙ доходности по классам (допущение) — для риска НЕ обыграть инфляцию (P[реал<0]).
-REAL_VOL = {"Акция": 0.22, "Облигация": 0.06, "Замещайка": 0.12}
 
 
 def _fisher_real(nominal: float, inflation: float) -> float:
@@ -56,8 +52,8 @@ def build(db, *, horizon: int, equity_cap: float, exp_inflation: float, target_r
         real = _fisher_real(nominal, exp_inflation) - (x.get("shock_drag") or 0.0)   # реал над выбр.инфл − шок-драг
         eq_candidates.append({
             "secid": x["secid"], "name": x["name"], "asset": "Акция",
-            "real": round(real, 4), "quality": x["quality_marker"],
-            "currency_profile": x.get("currency_profile", "MIXED"),
+            "real": round(real, 4), "shock_drag": round(x.get("shock_drag") or 0.0, 4),
+            "quality": x["quality_marker"], "currency_profile": x.get("currency_profile", "MIXED"),
             "tail_gate": (x.get("tail_risk") or {}).get("gate"), "signal": x["signal"]})
     eq_candidates.sort(key=lambda e: -e["real"])
 
@@ -79,6 +75,7 @@ def build(db, *, horizon: int, equity_cap: float, exp_inflation: float, target_r
         real -= (b.get("pd") or 0.0) * LGD + (b.get("shock_drag") or 0.0)
         bonds.append({"secid": b["secid"], "name": b["name"], "asset": "Облигация",
                       "subtype": f"{b['type']}·{b['coupon_type']}", "real": round(real, 4),
+                      "shock_drag": round(b.get("shock_drag") or 0.0, 4),
                       "pd_horizon": b.get("pd_horizon") or 0.0, "coupon_type": b["coupon_type"],
                       "is_corp": b["type"] == "Корп"})
     bonds.sort(key=lambda x: -x["real"])
@@ -90,7 +87,7 @@ def build(db, *, horizon: int, equity_cap: float, exp_inflation: float, target_r
             continue
         real = _fisher_real(f["ytm_fx"] + f.get("e_fx_move", 0.0), exp_inflation)   # FX-YTM + E[курс] над инфл
         fx.append({"secid": f["secid"], "name": f["name"], "asset": "Замещайка",
-                   "subtype": f.get("faceunit", "FX"), "real": round(real, 4)})
+                   "subtype": f.get("faceunit", "FX"), "real": round(real, 4), "shock_drag": 0.0})  # замещайка — девал-хедж
     fx.sort(key=lambda x: -x["real"])
 
     # ── АЛЛОКАЦИЯ: атака (акции) до cap, защита = остальное (замещайки-хедж + бонды) ──
@@ -129,16 +126,27 @@ def build(db, *, horizon: int, equity_cap: float, exp_inflation: float, target_r
     # ── ОЖИДАЕМАЯ РЕАЛЬНАЯ (взвешенная, шок-скорректированная); кэш=0 реал ──
     exp_real = round(sum(h["weight"] * h["real"] for h in holdings), 4)
 
-    # ── РИСК НЕ ОБЫГРАТЬ ИНФЛЯЦИЮ: P(реальная доходность за горизонт < 0, т.е. потеря покупат. способности) ──
-    # Модель shortfall: средняя годовая реал. ~ N(exp_real, σ_H). σ_H = годовая реал-вола портфеля /√H
-    # (тайм-диверсификация: чем длиннее держишь, тем стабильнее средняя). Вола классов взвешена БЕЗ
-    # диверсификации (как при коррелированной просадке) → консервативно. P(реал<0) = Φ(−exp_real/σ_H).
-    sigma_annual = sum(h["weight"] * REAL_VOL.get(h["asset"], 0.0) for h in holdings) + cash * 0.02
-    sigma_h = sigma_annual / math.sqrt(max(1, horizon))
-    if sigma_h > 1e-6:
-        miss_infl_risk = round(0.5 * (1.0 - math.erf(exp_real / sigma_h / math.sqrt(2.0))), 4)
+    # ── РИСК НЕ ОБЫГРАТЬ ИНФЛЯЦИЮ: P(реальная доходность за горизонт < 0, потеря покупат. способности) ──
+    # БИМОДАЛЬ (аудит v2 #2: НЕ гауссиан — модель стоит на толстых хвостах/бимодальности, σ/√H их сглаживал).
+    #   База (без шока): r_base = exp_real + шок-драг (что был вычтен) — обычно положителен.
+    #   Шок (условно ЕСЛИ шок): r_shock = r_base − условные удары: просадка акций + ВСПЛЕСК ИНФЛЯЦИИ на
+    #     фикс-номинальных (купон фиксирован → инфл съедает реал; линкер/флоат защищены) + кредит − девал-хедж.
+    g_shock = sum(h["weight"] * (h.get("shock_drag") or 0.0) for h in holdings)
+    r_base = exp_real + g_shock                                      # реал БЕЗ шока (базовый путь)
+    fixed_nom_w = sum(h["weight"] for h in holdings
+                      if h["asset"] == "Облигация" and h.get("coupon_type") == "Фикс") + cash
+    infl_spike = outlook.shock.infl_pp * min(1.0, outlook.norm_years / max(1, horizon))   # годовой over H
+    eq_cond = sum(h["weight"] * (h.get("shock_drag") or 0.0) for h in holdings if h["asset"] == "Акция")
+    bond_cond = sum(h["weight"] * (h.get("shock_drag") or 0.0) for h in holdings if h["asset"] == "Облигация")
+    cond_mult = (1.0 / p_shock) if p_shock > 1e-6 else 0.0          # ожид.драг → УСЛОВНЫЙ (если шок случился)
+    fx_gain = fxw * outlook.shock.fx_pct / max(1, horizon)          # девал-выигрыш замещаек (годовой)
+    shock_drag_total = (eq_cond + bond_cond) * cond_mult + fixed_nom_w * infl_spike - fx_gain
+    r_shock = r_base - shock_drag_total
+    if shock_drag_total > 1e-6:                                     # рампа: запас ≥2× удара → переживает (0); ≤1× → пробой (1)
+        p_neg_shock = min(1.0, max(0.0, 2.0 - r_base / shock_drag_total))
     else:
-        miss_infl_risk = 0.0 if exp_real >= 0 else 1.0
+        p_neg_shock = 1.0 if r_shock < 0 else 0.0
+    miss_infl_risk = round(p_shock * p_neg_shock + (1.0 - p_shock) * (1.0 if r_base < 0 else 0.0), 4)
 
     # ── РИСК −50% РЕАЛ: вероятность шока × доля «глубоких» × экспозиция к глубокой просадке ──
     # глубокая просадка портфеля = акции×DEEP_DD + корп×шок-потеря − замещайки×девал-выигрыш (хедж).

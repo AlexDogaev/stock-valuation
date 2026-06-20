@@ -179,11 +179,13 @@ def _shock_from_engine(settings, year: int):
     ewi = _json(settings.get("ewi_json"))
     blend = st.blend(weights)
     hr = he.compute_hazard(year=year, ewi=ewi)
+    # ОПЕРАТИВНЫЙ hazard = РАБОЧИЙ (консервативный, survival-first, аудит v2 #1), не движок-точка.
     sv = ShockVector(
-        p=hr.annual, infl_pp=blend["infl_pp"], fx_pct=blend["fx_pct"], ks_pp=blend["ks_pp"],
+        p=hr.working, infl_pp=blend["infl_pp"], fx_pct=blend["fx_pct"], ks_pp=blend["ks_pp"],
         equity_dd=blend["equity_dd"], recovery_1y=blend["recovery_1y"], sectoral=dict(SECTORAL_DD))
     typ = {"weights": blend["weights"], "dominant": blend["dominant"], "types": st.types_table()}
-    haz = {"annual": hr.annual, "annual_band": hr.annual_band, "base_fond": hr.base_fond,
+    haz = {"annual": hr.working, "annual_engine": hr.annual, "annual_band": hr.annual_band,
+           "working": hr.working, "base_fond": hr.base_fond,
            "structural_hump": hr.structural_hump, "ewi_score": hr.ewi_score,
            "ewi_multiplier": hr.ewi_multiplier, "forward": hr.forward, "notes": hr.notes}
     return sv, haz, typ

@@ -17,6 +17,9 @@ from dataclasses import dataclass, field
 BASE_FOND = 0.14            # годовой фон (гео+случайное) = частота глубоких РФ-кризисов (~2 за 12л); широкий интервал
 EWI_MULT_RANGE = (0.6, 2.2)  # множитель хрупкости: спокойно → ×0.6, экстремум EWI → ×2.2
 HAZARD_CAP = 0.60          # потолок годового hazard (выше — бессмысленно)
+# РАБОЧИЙ hazard (survival-first, аудит v2 #1): движок-точка ~16% — оптимистичный край;
+# для РЕШЕНИЙ берём консервативно max(верх band, историческая частота). Не циркулярно (без Opus).
+HISTORICAL_FREQ = 0.235    # 4 глубоких шока (2008/2014/2020/2022) за ~17 лет = эмпирический якорь
 # Интерим-дефолт EWI (умеренная РФ-напряжённость), пока нет live-парсеров (нефть/спреды/дефолты/сенсор).
 DEFAULT_EWI = {"oil_below_cutoff": 0.3, "valuation_overheat": 0.3, "credit_spread": 0.3,
                "default_trend": 0.3, "global_riskoff": 0.3}
@@ -40,8 +43,9 @@ EWI_WEIGHTS = {
 
 @dataclass
 class HazardResult:
-    annual: float                       # мгновенный годовой hazard «сейчас»
+    annual: float                       # мгновенный годовой hazard «сейчас» (ТОЧКА движка, оптимистичный край)
     annual_band: tuple                  # дов.интервал (4 события → широкий)
+    working: float                      # РАБОЧИЙ hazard для решений = max(верх band, ист.частота) — survival-first
     base_fond: float
     structural_hump: float              # вклад структурных окон в текущем году
     ewi_score: float                    # совокупный EWI 0..1
@@ -72,6 +76,8 @@ def compute_hazard(*, year: int, ewi: dict | None = None, base_fond: float = BAS
     annual = min(HAZARD_CAP, base_fond * mult + hump)
     # дов.интервал: 4 разнородных события → широкий (как red-team #1), вокруг точки
     band = (round(max(0.0, annual * 0.65), 4), round(min(HAZARD_CAP, annual * 1.45), 4))
+    # рабочий (для решений): консервативно max(верх band, ист.частота) — survival-first (аудит v2 #1)
+    working = round(min(HAZARD_CAP, max(band[1], HISTORICAL_FREQ)), 4)
     # forward кумулятив 1−exp(−h·W); дальние окна добирают структурный горб впереди
     fwd = {}
     for label, W in (("1мес", 1 / 12), ("3мес", 0.25), ("6мес", 0.5), ("12мес", 1.0),
@@ -82,12 +88,13 @@ def compute_hazard(*, year: int, ewi: dict | None = None, base_fond: float = BAS
             h_eff = sum(min(HAZARD_CAP, base_fond * mult + structural_hump(year + t))
                         for t in range(int(W))) / int(W)
         fwd[label] = round(1.0 - math.exp(-h_eff * W), 4)
-    notes = []
+    notes = [f"Рабочий hazard {working*100:.1f}% (для решений, survival-first) = max(верх band {band[1]*100:.0f}%, "
+             f"ист.частота {HISTORICAL_FREQ*100:.0f}%); движок-точка {annual*100:.1f}% — оптимистичный край."]
     if hump > 0.01:
         notes.append(f"Структурный горб +{hump*100:.1f}пп (окна транзита власти/энергопика ~2033-40) — "
                      f"ОКНО хрупкости, не дата; геотриггер может выстрелить вне окна.")
     if es > 0.5:
         notes.append(f"EWI-скор {es:.2f} высокий — хрупкость повышена (×{mult:.2f}).")
-    return HazardResult(annual=round(annual, 4), annual_band=band, base_fond=base_fond,
+    return HazardResult(annual=round(annual, 4), annual_band=band, working=working, base_fond=base_fond,
                         structural_hump=round(hump, 4), ewi_score=round(es, 3),
                         ewi_multiplier=round(mult, 3), forward=fwd, notes=notes)

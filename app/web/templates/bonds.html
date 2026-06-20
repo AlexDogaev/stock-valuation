@@ -63,11 +63,11 @@
   <table class="sc-tbl">
     <thead><tr>
       <th>Горизонт</th>
-      <th title="кумулятивная вероятность ≥1 шока за горизонт = 1−(1−hazard)^H">P(≥1 шок)</th>
+      <th title="кумулятивная вероятность ≥1 шока за горизонт = 1−(1−hazard)^H, по РАБОЧЕМУ hazard (консерв.)">P(≥1 шок)</th>
       <th>E[инфляция]</th>
       <th title="ОФЗ-фикс до погашения: real = YTM − E[инфл]; шок не бьёт (цена к номиналу)">ОФЗ-фикс</th>
       <th title="замещайка: real = FX-YTM + E[курс] − E[инфл]; девальвация в шоке в плюс">Замещайка</th>
-      <th title="акции = ОФЗ-реал + премия − драг шоков (тайминг равновероятен по месяцам)">Акции IMOEX</th>
+      <th title="РЫНОК АКЦИЙ В ЦЕЛОМ (IMOEX) = ОФЗ-реал + премия − драг шоков; flat для всех — НЕ оценка отдельной бумаги (её реал — на Скринере с индивид. g/сжатием/структурой)">Акции IMOEX (рынок)</th>
       <th title="L-кризис: шок без отскока (recovery=0) — худший случай на длинном горизонте">Акции · L-шок</th>
     </tr></thead>
     <tbody id="sc-rows"></tbody>
@@ -124,7 +124,7 @@ function bondRow(b) {
     <td>${b.name}${off}${cred}</td>
     <td><span class="btype ${b.coupon_type==='Линкер'?'ofz':''}">${b.coupon_type||'—'}</span></td>
     <td class="num">${pct(b.ytm)}</td>
-    <td class="num" title="${b.coupon_type==='Линкер'?'линкер: реал над ОФИЦИАЛЬНЫМ CPI − клин (личн−офиц='+pct(b.infl_to_mat)+'); офиц.CPI принят как личная инфл÷2':'номинал − инфляция за срок '+pct(b.infl_to_mat)}">${pctSigned(b.real_ytm)}</td>
+    <td class="num" title="${b.coupon_type==='Линкер'?'линкер: реал над ОФИЦИАЛЬНЫМ CPI − клин (личн−офиц='+pct(b.infl_to_mat)+'); офиц.CPI принят как личная инфл÷2 — НЕДОКАЗАННОЕ допущение (клин 2.0), реал линкера к нему очень чувствителен':'номинал − инфляция за срок '+pct(b.infl_to_mat)}">${pctSigned(b.real_ytm)}${b.coupon_type==='Линкер'?'<sup style="color:var(--edge)" title="реал линкера висит на недоказанном клине 2:1">⚠</sup>':''}</td>
     <td class="num"${b.shock_adj_yield != null ? ` title="без шока ${pct(b.risk_adj_yield)}; драг поведения в шок ${b.shock_drag >= 0 ? "−" : "+бонус "}${pct(Math.abs(b.shock_drag || 0))}"` : ""}><b>${pctSigned(b.shock_adj_yield != null ? b.shock_adj_yield : b.risk_adj_yield)}</b></td>
     <td class="num">${pd}</td>
     <td class="num">${pdH}</td>

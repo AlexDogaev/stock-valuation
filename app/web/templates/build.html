@@ -58,8 +58,9 @@
   </div>
   <div class="panel pf-risk">
     <div class="pf-row">
-      <div class="pf-stat"><span class="k" title="вероятность безвозвратной потери ≥90% (катастрофа L-типа + дефолты + экспроприация)">Риск полного обнуления</span><span class="v" id="pf-wipeout"></span></div>
+      <div class="pf-stat"><span class="k" title="вероятность, что реальная доходность за горизонт окажется отрицательной — портфель НЕ сохранит покупательную способность (база vs шоковая ветка)">Риск не обыграть инфляцию</span><span class="v" id="pf-miss"></span></div>
       <div class="pf-stat"><span class="k" title="вероятность потери ≥50% РЕАЛЬНОЙ стоимости за горизонт (глубокий шок + инфляция)">Риск −50% реального</span><span class="v" id="pf-loss50"></span></div>
+      <div class="pf-stat"><span class="k" title="вероятность безвозвратной потери ≥90% (катастрофа L-типа + дефолты + экспроприация)">Риск полного обнуления</span><span class="v" id="pf-wipeout"></span></div>
     </div>
     <p class="sub" id="pf-risk-note"></p>
   </div>
@@ -105,14 +106,17 @@ async function loadBuild() {
     `Акции <b>${pct(wq.equity)}</b> · облигации <b>${pct(wq.bond_total)}</b> (корп ${pct(wq.corp)}) · ` +
     `замещайки <b>${pct(wq.fx)}</b> · кэш/порох <b>${pct(wq.cash)}</b> · ${r.n_equity} акций + ${r.n_bond} бондов + ${r.n_fx} замещаек`;
 
-  const wipe = document.getElementById("pf-wipeout"); wipe.textContent = pct(r.wipeout_risk);
-  wipe.className = "v " + (r.wipeout_risk > 0.05 ? "bad" : r.wipeout_risk > 0.02 ? "mid" : "ok");
+  const miss = document.getElementById("pf-miss"); miss.textContent = pct(r.miss_infl_risk);
+  miss.className = "v " + (r.miss_infl_risk > 0.40 ? "bad" : r.miss_infl_risk > 0.20 ? "mid" : "ok");
   const l50 = document.getElementById("pf-loss50"); l50.textContent = pct(r.loss50_risk);
   l50.className = "v " + (r.loss50_risk > 0.25 ? "bad" : r.loss50_risk > 0.12 ? "mid" : "ok");
+  const wipe = document.getElementById("pf-wipeout"); wipe.textContent = pct(r.wipeout_risk);
+  wipe.className = "v " + (r.wipeout_risk > 0.05 ? "bad" : r.wipeout_risk > 0.02 ? "mid" : "ok");
   document.getElementById("pf-risk-note").textContent =
-    "Оценки от макро-прогноза: вероятность шока за горизонт × глубина просадки по составу портфеля. " +
-    "Обнуление — катастрофа L-типа + дефолты/экспроприация (защитный рукав ОФЗ/линкер/замещайка выживает). " +
-    "−50% реал — глубокий шок + инфляция (драйвер — доля акций).";
+    "Оценки от макро-прогноза, не точные числа. Не обыграть инфляцию — P(реал<0 за горизонт): средняя " +
+    "годовая реал.~N(ожид., вола÷√горизонт), длинный срок снижает риск (тайм-диверсификация). −50% реал — " +
+    "глубокий шок + инфляция (драйвер — доля акций). Обнуление — катастрофа L-типа + дефолты/экспроприация " +
+    "(рукав ОФЗ/линкер/замещайка выживает).";
 
   const acls = a => a === "Акция" ? "a-eq" : (a === "Замещайка" ? "a-fx" : "a-bond");
   document.getElementById("pf-rows").innerHTML = r.holdings.map(hh => `<tr>

@@ -124,7 +124,7 @@ function bondRow(b) {
     <td>${b.name}${off}${cred}</td>
     <td><span class="btype ${b.coupon_type==='Линкер'?'ofz':''}">${b.coupon_type||'—'}</span></td>
     <td class="num">${pct(b.ytm)}</td>
-    <td class="num" title="${b.coupon_type==='Линкер'?'линкер: YTM уже реальный':'номинал − инфляция за срок '+pct(b.infl_to_mat)}">${pctSigned(b.real_ytm)}</td>
+    <td class="num" title="${b.coupon_type==='Линкер'?'линкер: реал над ОФИЦИАЛЬНЫМ CPI − клин (личн−офиц='+pct(b.infl_to_mat)+'); офиц.CPI принят как личная инфл÷2':'номинал − инфляция за срок '+pct(b.infl_to_mat)}">${pctSigned(b.real_ytm)}</td>
     <td class="num"${b.shock_adj_yield != null ? ` title="без шока ${pct(b.risk_adj_yield)}; драг поведения в шок ${b.shock_drag >= 0 ? "−" : "+бонус "}${pct(Math.abs(b.shock_drag || 0))}"` : ""}><b>${pctSigned(b.shock_adj_yield != null ? b.shock_adj_yield : b.risk_adj_yield)}</b></td>
     <td class="num">${pd}</td>
     <td class="num">${pdH}</td>
@@ -277,7 +277,8 @@ async function loadBonds() {
     `Кривая ОФЗ ~1г ${at(1)} · ~5л ${at(5)} · ~10л ${at(10)}. Ставка: ${dirRu} → длинный фикс ` +
     (BDATA.rate_direction==='cut'?"в плюс (capital gain).":"нейтрально/встречно.") +
     ` Инфляция: сейчас ${pct(BDATA.e_inflation_now)} → терминал ${BDATA.e_inflation_terminal!=null?pct(BDATA.e_inflation_terminal):'—'} ` +
-    `— реал.YTM каждой бумаги = номинал − инфляция за ЕЁ срок. Защ. бар real≥0.`;
+    `— реал.YTM каждой бумаги = номинал − инфляция за ЕЁ срок. Линкеры (ОФЗ-ИН) индексируются на ` +
+    `ОФИЦИАЛЬНЫЙ CPI (принят как личная инфл÷2), их реал. — за вычетом клина личн−офиц. Защ. бар real≥0.`;
   renderTab();
 }
 document.getElementById("brefresh").addEventListener("click", async (e) => {

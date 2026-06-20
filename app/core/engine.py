@@ -562,8 +562,10 @@ def screen_bonds(db: sqlite3.Connection) -> dict:
     curve = mb.ofz_curve([b for b in ofz_clean if b["coupon_type"] == "Фикс"])  # кривая = ФИКС ОФЗ
     out: list[dict] = []
     for b in ofz_clean:
-        is_lk = b["coupon_type"] == "Линкер"   # у линкера YTM УЖЕ реальный → не вычитать инфляцию
-        infl_m = 0.0 if is_lk else outlook.e_inflation(b["duration_years"])   # E[инфл|срок] с учётом шока
+        is_lk = b["coupon_type"] == "Линкер"   # линкер: YTM уже реальный над ОФИЦИАЛЬНЫМ CPI
+        infl_full = outlook.e_inflation(b["duration_years"])                  # E[личн.инфл|срок] с учётом шока
+        # линкер индексируется на офиц.CPI (=личная/RATIO) → дефлятор = клин личная−офиц = личн·(1−1/RATIO)
+        infl_m = infl_full * (1.0 - 1.0 / mo.ROSSTAT_RATIO) if is_lk else infl_full
         a = bmod.assess_bond(ytm=b["ytm"], e_inflation=infl_m, hurdle_real=bond_hurdle,
                              buffer=bond_buffer, rate_direction=rate_direction,
                              floater=(b["coupon_type"] == "Флоат"), is_ofz=True)
@@ -583,7 +585,8 @@ def screen_bonds(db: sqlite3.Connection) -> dict:
         pd_raw = credit_pd.pd_market(spread) if spread is not None else None
         pd_ann = min((pd_raw or 0.0) * stress, 0.99)   # годовая PD под текущим макро-режимом (стресс)
         cred = pd_raw is None or pd_ann <= PD_CAP       # интерим: отсечь junk по (стресс.) PD
-        infl_m = 0.0 if is_lk else outlook.e_inflation(b["duration_years"])   # E[инфл|срок] с учётом шока
+        infl_full = outlook.e_inflation(b["duration_years"])                  # E[личн.инфл|срок] с учётом шока
+        infl_m = infl_full * (1.0 - 1.0 / mo.ROSSTAT_RATIO) if is_lk else infl_full   # линкер: дефлятор=клин
         a = bmod.assess_bond(ytm=b["ytm"], e_inflation=infl_m, hurdle_real=bond_hurdle,
                              buffer=bond_buffer, rate_direction=rate_direction,
                              floater=(b["coupon_type"] == "Флоат"), kbd_at_duration=kbd, credit_ok_override=cred)

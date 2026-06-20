@@ -27,6 +27,24 @@ class BondAssessment:
     notes: list[str] = field(default_factory=list)
 
 
+CREDIT_SHOCK_MULT = 2.5   # дефолты в кризис ≈ ×2.5 (заземление: пик дефолтов РФ 2025)
+
+
+def shock_behavior_drag(*, coupon_type: str, pd: float, p_shock: float, ks_pp: float,
+                        lgd: float = LGD_DEFAULT) -> float:
+    """Годовой драг доходности от ПОВЕДЕНИЯ бонда в шоке, взвешенный по вероятности шока (p_shock).
+
+    Ставочный канал по типу: Флоат → БОНУС (шок=КС↑ → купон растёт); Линкер/Фикс → 0 (линкер индексирован;
+    фикс HtM → цена к номиналу, инфл.всплеск уже в real_YTM). КРЕДИТНЫЙ канал — для ЛЮБОГО корп (pd>0)
+    независимо от купона: шок-всплеск дефолтов ×CREDIT_SHOCK_MULT (корп флоатер ловит И бонус, И кредит).
+    Положит. = вычитается из доходности; отриц. = бонус."""
+    drag = 0.0
+    if coupon_type == "Флоат":
+        drag -= p_shock * ks_pp * 0.5                      # ставочный бонус: купон переоценивается вверх
+    drag += p_shock * pd * (CREDIT_SHOCK_MULT - 1.0) * lgd  # кредитный всплеск (ОФЗ pd=0 → 0)
+    return drag
+
+
 def rate_signal_for(*, rate_direction: str, floater: bool) -> str:
     """Длинный фикс выигрывает при СНИЖЕНИИ КС; флоатер — при РОСТЕ (купон переоценивается вверх)."""
     d = (rate_direction or "hold").lower()

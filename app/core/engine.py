@@ -563,8 +563,12 @@ def screen_bonds(db: sqlite3.Connection) -> dict:
         a = bmod.assess_bond(ytm=b["ytm"], e_inflation=infl_m, hurdle_real=bond_hurdle,
                              buffer=bond_buffer, rate_direction=rate_direction,
                              floater=(b["coupon_type"] == "Флоат"), is_ofz=True)
+        sdrag = bmod.shock_behavior_drag(coupon_type=b["coupon_type"], pd=0.0,
+                                         p_shock=outlook.shock.p, ks_pp=outlook.shock.ks_pp)
         out.append({**b, "type": "ОФЗ", "spread": None, "pd": 0.0, "pd_horizon": 0.0,
-                    "real_ytm": a.real_ytm, "risk_adj_yield": a.real_ytm, "infl_to_mat": round(infl_m, 4),
+                    "real_ytm": a.real_ytm, "risk_adj_yield": a.real_ytm,
+                    "shock_drag": round(sdrag, 4), "shock_adj_yield": round(a.real_ytm - sdrag, 4),
+                    "infl_to_mat": round(infl_m, 4),
                     "rate_signal": a.rate_signal, "credit_ok": True, "signal": a.signal})
     corp_clean = sorted([b for b in corp if mb.is_sane(b, min_dur=0.5, ytm_lo=0.06, ytm_hi=0.40, min_trades=10)
                          and b["coupon_type"] in mb.CLASSIC], key=lambda x: -x["num_trades"])[:90]
@@ -580,12 +584,16 @@ def screen_bonds(db: sqlite3.Connection) -> dict:
                              buffer=bond_buffer, rate_direction=rate_direction,
                              floater=(b["coupon_type"] == "Флоат"), kbd_at_duration=kbd, credit_ok_override=cred)
         pd_hz = 1.0 - (1.0 - pd_ann) ** max(b["duration_years"], 0.1)   # кумулятивная PD за срок (Q2/Q4)
+        risk_adj = a.real_ytm - pd_ann * LGD                            # реал. за вычетом ожид. потерь (год)
+        sdrag = bmod.shock_behavior_drag(coupon_type=b["coupon_type"], pd=pd_ann,
+                                         p_shock=outlook.shock.p, ks_pp=outlook.shock.ks_pp)  # шок-всплеск дефолтов
         out.append({**b, "type": "Корп", "spread": round(spread, 4) if spread is not None else None,
                     "pd": round(pd_ann, 4), "pd_horizon": round(pd_hz, 4), "real_ytm": a.real_ytm,
-                    "risk_adj_yield": round(a.real_ytm - pd_ann * LGD, 4),   # реал. за вычетом ожид. потерь (год)
+                    "risk_adj_yield": round(risk_adj, 4),
+                    "shock_drag": round(sdrag, 4), "shock_adj_yield": round(risk_adj - sdrag, 4),
                     "infl_to_mat": round(infl_m, 4),
                     "rate_signal": a.rate_signal, "credit_ok": a.credit_ok, "signal": a.signal})
-    out.sort(key=lambda x: (x["risk_adj_yield"] is None, -(x.get("risk_adj_yield") or -99)))  # по реал. с уч. риска
+    out.sort(key=lambda x: (x.get("shock_adj_yield") is None, -(x.get("shock_adj_yield") or -99)))  # по реал. с уч. риска И шока
     return {"bonds": out, "count": len(out), "buy": sum(1 for b in out if b["signal"] == "ПОКУПАЙ"),
             "ofz_curve": [[d, round(y, 4)] for d, y in curve], "rate_direction": rate_direction,
             "e_inflation_now": round(outlook.felt, 4),

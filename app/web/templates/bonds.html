@@ -90,7 +90,7 @@
   <table id="btbl">
     <thead><tr>
       <th>Бумага</th><th>Купон</th><th>YTM</th><th>Реал.YTM</th>
-      <th title="реальная доходность за вычетом ожидаемых кредитных потерь PD×LGD (годовая)">Реал.−риск</th>
+      <th title="реальная за вычетом кредитных потерь PD×LGD И поведения в шок (ОФЗ-фикс HtM: 0; флоат: бонус; корп: всплеск дефолтов ×2.5). Наведи на ячейку — без шока.">Реал.−риск✻</th>
       <th title="годовая вероятность дефолта (12 мес), из рыночного спреда; под стресс-множителем макро-режима">Дефолт 12м</th>
       <th title="кумулятивная вероятность дефолта за срок до погашения (дюрацию): 1−(1−PD)^срок">Дефолт срок</th>
       <th>Дюр, лет</th><th>Ставка</th><th>Сигнал</th>
@@ -125,7 +125,7 @@ function bondRow(b) {
     <td><span class="btype ${b.coupon_type==='Линкер'?'ofz':''}">${b.coupon_type||'—'}</span></td>
     <td class="num">${pct(b.ytm)}</td>
     <td class="num" title="${b.coupon_type==='Линкер'?'линкер: YTM уже реальный':'номинал − инфляция за срок '+pct(b.infl_to_mat)}">${pctSigned(b.real_ytm)}</td>
-    <td class="num"><b>${pctSigned(b.risk_adj_yield)}</b></td>
+    <td class="num"${b.shock_adj_yield != null ? ` title="без шока ${pct(b.risk_adj_yield)}; драг поведения в шок ${b.shock_drag >= 0 ? "−" : "+бонус "}${pct(Math.abs(b.shock_drag || 0))}"` : ""}><b>${pctSigned(b.shock_adj_yield != null ? b.shock_adj_yield : b.risk_adj_yield)}</b></td>
     <td class="num">${pd}</td>
     <td class="num">${pdH}</td>
     <td class="num">${num(b.duration_years,1)}</td>

@@ -643,9 +643,13 @@ def screen_fx(db: sqlite3.Connection) -> dict:
         fxb = mb.fetch_bonds(mb.CORP_BOARD, fx=True) + mb.fetch_bonds(mb.OFZ_BOARD, fx=True)
     except Exception as e:  # noqa: BLE001
         return {"error": f"MOEX ISS недоступен: {type(e).__name__}", "bonds": [], "count": 0}
-    # FX-доходности ниже рублёвых (в валюте бумаги): диапазон 2–20%, ликвидность скромнее
+    # FX-доходности ниже рублёвых (в валюте бумаги): диапазон 2–20%, ликвидность скромнее.
+    # КРЕДИТ-ФИЛЬТР (находка Саши по Автом01CNY): защитный рукав = ИНВЕСТ-ГРЕЙД (листинг 1-2),
+    # НЕ ВДО (листинг 3). У FX нет валютной G-curve для PD-из-спреда → листинг = прокси качества.
+    # Иначе мусорный юаневый ВДО (CNY-YTM 16-17% = ~14пп кредитного спреда) попадал в защиту как «хедж».
     clean = sorted([b for b in fxb if mb.is_sane(b, min_dur=0.5, ytm_lo=0.02, ytm_hi=0.20, min_trades=3)
-                    and b["coupon_type"] in mb.CLASSIC], key=lambda x: -x["num_trades"])[:60]
+                    and b["coupon_type"] in mb.CLASSIC and (b.get("listlevel") in (1, 2))],
+                   key=lambda x: -x["num_trades"])[:60]
     out: list[dict] = []
     for b in clean:
         fa = fxmod.assess_fx(scenarios=scenarios, carry=carry_val, hurdle=0.0, buffer=0.01,

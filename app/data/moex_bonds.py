@@ -66,6 +66,7 @@ def fetch_bonds(board: str, *, fx: bool = False) -> list[dict]:
             "coupon_pct": s[sc["COUPONPERCENT"]], "matdate": s[sc["MATDATE"]],
             "offer": offer or None, "num_trades": (m[mc["NUMTRADES"]] if m else 0) or 0,
             "coupon_type": classify_coupon(s[sc["BONDTYPE"]]), "faceunit": faceunit,
+            "listlevel": (s[sc["LISTLEVEL"]] if "LISTLEVEL" in sc else None),  # уровень листинга MOEX (1-2 ИГ / 3 ВДО)
         })
     _cache[ckey] = (time.time(), out)
     return out

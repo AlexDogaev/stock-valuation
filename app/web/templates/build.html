@@ -145,6 +145,14 @@ document.getElementById("bld-aggr").addEventListener("change", e => {
 ["bld-horizon", "bld-aggr", "bld-infl", "bld-target"].forEach(id =>
   document.getElementById(id).addEventListener("input", markStale));
 document.getElementById("bld-aggr-note").textContent = aggrNote["Сбалансированный"];
-loadBuild();
+// Стартовать с инфляцией, выставленной глобально (поле «Инфляция» в шапке = felt_inflation), не с хардкода.
+(async () => {
+  try {
+    const s = await getJSON("/settings");
+    if (s && s.felt_inflation != null)
+      document.getElementById("bld-infl").value = +(s.felt_inflation * 100).toFixed(1);
+  } catch (e) { /* fallback — дефолт из value атрибута */ }
+  loadBuild();
+})();
 </script>
 {% endblock %}

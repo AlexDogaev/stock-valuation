@@ -105,6 +105,7 @@ class Settings(BaseModel):
     iis3: int | None = None
     normal_pe: float | None = None
     key_rate_override: float | None = None
+    inflation_terminal_override: float | None = None
 
 
 @router.get("/settings")
@@ -115,6 +116,7 @@ def read_settings():
         s["deflator_active"] = engine.active_deflator_value(s, db)
         s["key_rate_eff"] = effective_key_rate(db)             # действующая (override или ЦБ SOAP)
         s["key_rate_fetched"] = get_macro(db).get("key_rate")  # из ЦБ SOAP (для подсказки)
+        s["terminal_inflation_eff"] = engine.terminal_inflation(s, db)  # действующий терминал (override/траектория)
     return s
 
 

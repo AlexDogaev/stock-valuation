@@ -120,6 +120,7 @@ async function initHeaderControls() {
   const targetInp = document.getElementById("g-target");
   const horizonSel = document.getElementById("g-horizon");
   const ksInp = document.getElementById("g-ks");
+  const termInp = document.getElementById("g-terminal");
   if (!regimeSel) return;
   try {
     const s = await getJSON("/settings");
@@ -129,6 +130,10 @@ async function initHeaderControls() {
     if (ksInp && s.key_rate_eff != null) {       // действующая КС (override или ЦБ SOAP)
       ksInp.value = (s.key_rate_eff * 100).toFixed(2);
       ksInp.title = `Ключевая ставка. ЦБ SOAP: ${s.key_rate_fetched != null ? (s.key_rate_fetched * 100).toFixed(2) + "%" : "—"}. Ручной override — для объявленной до публикации в SOAP.`;
+    }
+    if (termInp && s.terminal_inflation_eff != null) {     // терминальная инфляция (override или траектория)
+      termInp.value = (s.terminal_inflation_eff * 100).toFixed(1);
+      termInp.title = `Терминальная инфляция ${(s.terminal_inflation_eff*100).toFixed(1)}% (${s.inflation_terminal_override!=null?"ручной override":"из траектории КС"}). Подними для стресса «инфляция залипнет выше» → реал.YTM длинного фикса вниз.`;
     }
     if (horizonSel) horizonSel.value = String(s.forecast_years);
     const eff = document.getElementById("g-felt-eff");   // эфф. дефлятор за горизонт (траектория КС)
@@ -148,6 +153,7 @@ async function initHeaderControls() {
   if (feltInp) feltInp.addEventListener("change", () => saveNum(feltInp, "felt_inflation"));
   if (targetInp) targetInp.addEventListener("change", () => saveNum(targetInp, "hurdle"));
   if (ksInp) ksInp.addEventListener("change", () => saveNum(ksInp, "key_rate_override"));
+  if (termInp) termInp.addEventListener("change", () => saveNum(termInp, "inflation_terminal_override"));
   if (horizonSel) horizonSel.addEventListener("change", async () => {
     await sendJSON("/settings", "PUT", { forecast_years: parseInt(horizonSel.value) });
     location.reload();

@@ -22,7 +22,11 @@ def terminal_inflation(settings: dict, db: sqlite3.Connection | None = None) -> 
 
     Если есть оценка траектории КС с терминальной ставкой — инфляция = КС − реальный
     спред (rate_trajectory). Иначе ручная настройка inflation_terminal.
+    Ручной override (стресс «инфляция залипнет выше») — ПРИОРИТЕТНЕЕ траектории Opus.
     """
+    ov = settings.get("inflation_terminal_override")
+    if ov is not None:
+        return ov
     if db is not None:
         try:
             from app.core import llm_macro, rate_trajectory as rt

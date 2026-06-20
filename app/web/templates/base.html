@@ -8,7 +8,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Golos+Text:wght@400;500;600&family=JetBrains+Mono:wght@400;500&family=Lora:wght@500;600&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/static/app.css?v=20260619-batch3">
-  <script src="/static/app.js?v=20260620-ksoverride"></script>
+  <script src="/static/app.js?v=20260620-terminfl"></script>
   {% block head %}{% endblock %}
 </head>
 <body>
@@ -37,6 +37,9 @@
     </span>
     <span class="ctl">КС
       <input type="number" id="g-ks" class="num" step="0.5" inputmode="decimal" title="Ключевая ставка ЦБ. Ручной override объявленной ставки, пока ЦБ SOAP не опубликовал (вступает в силу со след. раб. дня)">%
+    </span>
+    <span class="ctl">Терм.инфл
+      <input type="number" id="g-terminal" class="num" step="0.5" inputmode="decimal" title="Терминальная инфляция (куда сойдёт в долгосроке). По умолчанию из траектории КС (КС−2.5%). Override — стресс «инфляция залипнет выше»: поднимает E[инфл] длинных бумаг → реал.YTM фикса вниз.">%
     </span>
     <span class="ctl">Горизонт
       <select id="g-horizon">

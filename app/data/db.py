@@ -261,6 +261,7 @@ def init_db() -> None:
         _ensure_column(db, "user_settings", "integration_json", "TEXT")      # индекс интеграции (фин/торг/валют/тех × Запад/Восток)
         _ensure_column(db, "user_settings", "shock_weights_json", "TEXT")    # веса типологии шока (geo/commodity/global/financial/lstag)
         _ensure_column(db, "user_settings", "key_rate_override", "REAL")     # ручная КС (объявленная ЦБ до публикации в SOAP)
+        _ensure_column(db, "user_settings", "inflation_terminal_override", "REAL")  # ручной терминал инфляции (стресс: залипание инфл выше)
         _ensure_column(db, "financials", "currency_profile", "TEXT DEFAULT 'MIXED'")  # EXPORTER|DOMESTIC|MIXED (#11)
         _ensure_column(db, "structural", "moat_risk", "INTEGER DEFAULT 0")    # уязвимость рва к дизрупции 0/1/2 (§4,9)
         _ensure_column(db, "structural", "is_enabler", "INTEGER DEFAULT 0")   # ENABLER-рельса (рента устойчивее) (§4)

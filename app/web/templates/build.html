@@ -18,6 +18,9 @@
   #pf-tbl th, #pf-tbl td { padding: 10px 13px; }
   #pf-tbl td:first-child { font-size: 14px; }
   .a-eq { color: var(--buy); } .a-bond { color: #7fa8cf; } .a-fx { color: var(--edge); }
+  #bld-out.stale { opacity: .3; transition: opacity .15s; pointer-events: none; }
+  #bld-stale { color: var(--edge); font-size: 13px; margin: 8px 0 0; }
+  #bld-go.stale { background: var(--edge); color: #1a1400; }
 </style>
 {% endblock %}
 {% block content %}
@@ -43,6 +46,7 @@
   <div><button id="bld-go" type="button">Собрать портфель</button></div>
 </div>
 <p class="sub" id="bld-aggr-note"></p>
+<p id="bld-stale" hidden>⟳ параметры изменились — нажми «Собрать портфель»</p>
 <div id="bld-out" hidden>
   <div class="panel"><div class="pf-row">
     <div class="pf-stat"><span class="k" id="pf-real-k">Ожид. реальная (год)</span><span class="v" id="pf-real"></span></div>
@@ -77,9 +81,11 @@ async function loadBuild() {
   const btn = document.getElementById("bld-go"); btn.disabled = true; btn.textContent = "Собираю…";
   let r;
   try { r = await getJSON(`/build_portfolio?horizon=${h}&aggressiveness=${encodeURIComponent(aggr)}&inflation=${infl}&target=${target}`); }
-  finally { btn.disabled = false; btn.textContent = "Собрать портфель"; }
+  finally { btn.disabled = false; btn.textContent = "Собрать портфель"; btn.classList.remove("stale"); }
   if (!r || r.error) return;
-  document.getElementById("bld-out").removeAttribute("hidden");
+  const out = document.getElementById("bld-out");
+  out.removeAttribute("hidden"); out.classList.remove("stale");
+  document.getElementById("bld-stale").setAttribute("hidden", "");
 
   document.getElementById("pf-real-k").textContent = `Ожид. реальная (год) · ${h}л`;
   const realEl = document.getElementById("pf-real");
@@ -114,10 +120,18 @@ async function loadBuild() {
   </tr>`).join("") + (wq.cash > 0.01 ? `<tr><td>Кэш / порох</td><td class="muted">—</td><td class="num"><b>${pct(wq.cash)}</b></td><td class="num">0%</td><td class="muted" style="font-size:12px">${r.bonds_unavailable ? "⚠ облигации MOEX недоступны — повтори сборку" : "не хватило проходящих имён под лимит (рынок дорог)"}</td></tr>` : "");
 }
 document.getElementById("bld-go").addEventListener("click", loadBuild);
+function markStale() {
+  if (document.getElementById("bld-out").hasAttribute("hidden")) return;  // ещё не собирали
+  document.getElementById("bld-out").classList.add("stale");
+  document.getElementById("bld-stale").removeAttribute("hidden");
+  document.getElementById("bld-go").classList.add("stale");
+}
 const aggrNote = {"Агрессивный":"до 70% в акциях","Сбалансированный":"до 50% в акциях","Консервативный":"до 30% в акциях"};
 document.getElementById("bld-aggr").addEventListener("change", e => {
   document.getElementById("bld-aggr-note").textContent = aggrNote[e.target.value] || "";
 });
+["bld-horizon", "bld-aggr", "bld-infl", "bld-target"].forEach(id =>
+  document.getElementById(id).addEventListener("input", markStale));
 document.getElementById("bld-aggr-note").textContent = aggrNote["Сбалансированный"];
 loadBuild();
 </script>

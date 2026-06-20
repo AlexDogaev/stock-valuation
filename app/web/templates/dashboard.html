@@ -110,7 +110,7 @@ function rowCells(x) {
       <td class="num col-extra">${pct(x.calc.full_nominal)}</td>
       <td class="num"${x.real_return_base != null ? ` title="база (без шока) ${(x.real_return_base * 100).toFixed(1)}% − драг шок-просадки ${((x.shock_drag || 0) * 100).toFixed(1)}пп"` : ""}>${pctSigned(x.real_return)}</td>
       <td class="num col-extra">${x.forecast.price_target !== null ? Math.round(x.forecast.price_target).toLocaleString("ru") : "—"}</td>
-      <td class="num">${pctSigned(x.forecast.price_upside)}</td>
+      <td class="num"${x.forecast.price_upside_base != null ? ` title="база (без шока) ${(x.forecast.price_upside_base * 100).toFixed(0)}% за ${x.forecast.years}г; вычтен драг шок-просадки"` : ""}>${pctSigned(x.forecast.price_upside)}</td>
       <td class="num col-extra">${num(x.structural.multiplier, 2)}</td>
       <td>${sigBadge(x.signal)}</td>
       <td class="qual-cell" data-secid="${x.secid}" title="Показать обоснование Опуса"><small>${x.quality_marker==='PROVEN_QUALITY'?'<b style="color:var(--buy)">★ доказ.</b>':(x.quality_marker==='PROSPECTIVE_QUALITY'?'<b style="color:var(--edge)">◑ персп.</b>':(x.quality_marker==='PROSPECTIVE_NO_QUALITY'?'○ спекул.':'<span class="muted">◦ обычн.</span>'))}</small><span class="ic">ⓘ</span></td>`;
@@ -178,7 +178,7 @@ async function load() {
   const thT = document.querySelector('th[data-k="target"]');
   const thU = document.querySelector('th[data-k="upside"]');
   if (thT) thT.textContent = `Цель ${yrs}г, ₽`;
-  if (thU) thU.textContent = `Апсайд ${yrs}г`;
+  if (thU) { thU.textContent = `Апсайд ${yrs}г ✻`; thU.title = "Рост котировки (без дивидендов) С УЧЁТОМ шок-просадки (драг вычтен из ценового CAGR). Наведи на ячейку — база без шока."; }
   document.getElementById("meta").textContent =
     `${d.count} эмитентов. ${DATA.filter(x=>x.signal==="ПОКУПАЙ").length} ПОКУПАЙ · ` +
     `${DATA.filter(x=>x.signal==="ГРАНИЦА").length} ГРАНИЦА · ` +

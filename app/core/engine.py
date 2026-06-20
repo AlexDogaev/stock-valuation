@@ -282,14 +282,16 @@ def evaluate_issuer(db: sqlite3.Connection, secid: str, macro_frag: dict | None 
     _eq_drag = outlook.equity_shock_drag(n) * _DD_SCALE.get(currency_profile, 0.8)
     eff_real = eff_real_base - _eq_drag                    # показываемая «РЕАЛ.» — с учётом шок-просадки
 
-    price_cagr = (1.0 + fr.g_final) * fr.compression - 1.0  # ценовой CAGR (без дивов)
+    price_cagr_base = (1.0 + fr.g_final) * fr.compression - 1.0  # ценовой CAGR (без дивов, без шока)
+    price_cagr = price_cagr_base - _eq_drag                      # С УЧ. ШОКА (драг просадки — это и есть обвал котировки)
     price_target = r["price"] * (1.0 + price_cagr) ** n if r["price"] else None
     forecast = {
         "years": n,
         "price_cagr": price_cagr,
         "price_now": r["price"],
         "price_target": round(price_target, 2) if price_target else None,
-        "price_upside": (1.0 + price_cagr) ** n - 1.0,            # рост котировки
+        "price_upside": (1.0 + price_cagr) ** n - 1.0,            # рост котировки, С УЧ. ШОКА
+        "price_upside_base": (1.0 + price_cagr_base) ** n - 1.0,  # без шок-просадки (база)
         "total_return": (1.0 + fr.full_nominal) ** n - 1.0,       # с дивидендами (валовое)
         "real_return": (1.0 + eff_real) ** n - 1.0,               # над инфляцией, посленалогово, С УЧ. ШОКА
         "real_return_base": (1.0 + eff_real_base) ** n - 1.0,     # без шок-просадки (база)

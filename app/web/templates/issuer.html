@@ -187,7 +187,7 @@ function render(x) {
       <div class="vmetric"><span class="vm-k">Цена</span><span class="vm-v">${priceStr}</span></div>
       <div class="vmetric"><span class="vm-k">P / E</span><span class="vm-v">${m.pe!==null?m.pe:(m.loss?"убыток":"н/д")}</span></div>
       <div class="vmetric" title="${x.real_return_base!=null?`с учётом шок-просадки: база ${(x.real_return_base*100).toFixed(1)}% − драг ${((x.shock_drag||0)*100).toFixed(1)}пп`:''}"><span class="vm-k">Реальная · год ✻</span><span class="vm-v">${pctSigned(x.real_return)}</span></div>
-      <div class="vmetric"><span class="vm-k">Апсайд · ${f.years} г</span><span class="vm-v">${pctSigned(f.price_upside)}</span></div>
+      <div class="vmetric" title="${f.price_upside_base!=null?`с учётом шок-просадки (база без шока ${(f.price_upside_base*100).toFixed(0)}%)`:''}"><span class="vm-k">Апсайд · ${f.years} г ✻</span><span class="vm-v">${pctSigned(f.price_upside)}</span></div>
     </section>
     <section class="vrationale">
       <span class="vm-k">Обоснование оценки · Opus</span>

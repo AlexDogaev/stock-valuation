@@ -193,14 +193,14 @@ def _norm_years(db) -> tuple[float, str]:
     from app.core import rate_trajectory as rt
     try:
         from app.core import llm_macro
-        from app.data.db import get_macro
+        from app.data.db import effective_key_rate
         tr = llm_macro.get_rate_trajectory(db) or {}
         dim = tr.get("disinflation_months")
         if dim:
             lo, hi = rt.NORM_YEARS_BOUNDS
             return max(lo, min(hi, dim / 12.0)), "Opus/риторика ЦБ"
         if tr.get("terminal_ks") is not None:
-            cur_ks = (get_macro(db) or {}).get("key_rate")
+            cur_ks = effective_key_rate(db)
             return rt.disinflation_years(cur_ks, tr["terminal_ks"], tr.get("avg_step_pp")), "темп траектории КС"
     except Exception:  # noqa: BLE001
         pass

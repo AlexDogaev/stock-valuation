@@ -260,6 +260,7 @@ def init_db() -> None:
         _ensure_column(db, "user_settings", "ewi_json", "TEXT")              # EWI движка hazard (нефть/спреды/дефолты/сенсор)
         _ensure_column(db, "user_settings", "integration_json", "TEXT")      # индекс интеграции (фин/торг/валют/тех × Запад/Восток)
         _ensure_column(db, "user_settings", "shock_weights_json", "TEXT")    # веса типологии шока (geo/commodity/global/financial/lstag)
+        _ensure_column(db, "user_settings", "key_rate_override", "REAL")     # ручная КС (объявленная ЦБ до публикации в SOAP)
         _ensure_column(db, "financials", "currency_profile", "TEXT DEFAULT 'MIXED'")  # EXPORTER|DOMESTIC|MIXED (#11)
         _ensure_column(db, "structural", "moat_risk", "INTEGER DEFAULT 0")    # уязвимость рва к дизрупции 0/1/2 (§4,9)
         _ensure_column(db, "structural", "is_enabler", "INTEGER DEFAULT 0")   # ENABLER-рельса (рента устойчивее) (§4)
@@ -328,6 +329,15 @@ def get_settings(db: sqlite3.Connection) -> dict:
 
 def get_macro(db: sqlite3.Connection) -> dict:
     return dict(db.execute("SELECT * FROM macro WHERE id = 1").fetchone())
+
+
+def effective_key_rate(db: sqlite3.Connection) -> float | None:
+    """Действующая КС: ручной override (объявленная ЦБ до публикации в SOAP) приоритетнее
+    фетченной из macro. Кормит carry/дефлятор/траекторию (current_ks)."""
+    ov = get_settings(db).get("key_rate_override")
+    if ov is not None:
+        return ov
+    return get_macro(db).get("key_rate")
 
 
 def roic_years(db: sqlite3.Connection, secid: str) -> int:

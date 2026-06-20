@@ -210,9 +210,16 @@ def assess_rate_trajectory(db: sqlite3.Connection) -> dict:
     Fallback без Opus — числовой грейд по темпу решений (rate_trajectory.pace_grade)
     и терминал по дефолтному маппингу. Терминал кормит дефлятор (engine).
     """
+    from app.data.db import effective_key_rate, get_settings as _gs
+    from datetime import date
     decisions = cbr.fetch_key_rate_history()
+    # ручной override КС (объявленная ЦБ до публикации в SOAP) — дописать как последнее решение,
+    # чтобы пейс/градация и current_ks отразили свежее заседание (SOAP отстаёт до вступления в силу)
+    ov = _gs(db).get("key_rate_override")
+    if ov is not None and (not decisions or abs(decisions[-1][1] - ov) > 1e-6):
+        decisions = decisions + [(date.today().isoformat(), ov)]
     pace = rt.pace_grade(decisions)
-    current_ks = decisions[-1][1] if decisions else (get_macro(db).get("key_rate") or 0.145)
+    current_ks = effective_key_rate(db) or (decisions[-1][1] if decisions else 0.145)
 
     if not llm.enabled():
         grade = pace["grade"]

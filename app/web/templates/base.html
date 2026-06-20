@@ -8,7 +8,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Golos+Text:wght@400;500;600&family=JetBrains+Mono:wght@400;500&family=Lora:wght@500;600&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/static/app.css?v=20260619-batch3">
-  <script src="/static/app.js?v=20260620-hazengine"></script>
+  <script src="/static/app.js?v=20260620-ksoverride"></script>
   {% block head %}{% endblock %}
 </head>
 <body>
@@ -34,6 +34,9 @@
     </span>
     <span class="ctl">Таргет
       <input type="number" id="g-target" class="num" step="0.5" inputmode="decimal" title="Желаемая реальная доходность над ощущаемой инфляцией">%
+    </span>
+    <span class="ctl">КС
+      <input type="number" id="g-ks" class="num" step="0.5" inputmode="decimal" title="Ключевая ставка ЦБ. Ручной override объявленной ставки, пока ЦБ SOAP не опубликовал (вступает в силу со след. раб. дня)">%
     </span>
     <span class="ctl">Горизонт
       <select id="g-horizon">

@@ -13,7 +13,7 @@ from typing import Any
 
 from app.config import FORECAST_YEARS, DEFAULTS
 from app.core import valuation, structural, classify, rate, quality_markers, decision, tax, tectonic, tail_risk
-from app.data.db import get_db, get_settings, get_macro, roic_years
+from app.data.db import get_db, get_settings, get_macro, roic_years, effective_key_rate
 
 
 # ── дефлятор = ощущаемая инфляция с учётом траектории снижения КС за горизонт ──
@@ -530,7 +530,7 @@ def screen_bonds(db: sqlite3.Connection) -> dict:
     # ПОДЧИНЕНИЕ ОБЩЕЙ МОДЕЛИ: те же ФНБ/шок-режим + carry по траектории КС, что и у акций.
     frag = macro_fragility(db)
     stress = 1.0 + 0.5 * frag["F"]               # кредит ухудшается в хрупком макро (F∈[0,1] → до ×1.5)
-    cur_ks = (get_macro(db) or {}).get("key_rate") or 0.145
+    cur_ks = effective_key_rate(db) or 0.145
     from app.core import carry as carrymod
     carry_val = carrymod.carry_rate(cur_ks, (tr or {}).get("terminal_ks"), years)
     try:
@@ -592,7 +592,7 @@ def screen_fx(db: sqlite3.Connection) -> dict:
     from app.core import fx as fxmod, carry as carrymod, macro_outlook as mo
     settings = get_settings(db)
     years = settings.get("forecast_years") or FORECAST_YEARS
-    cur_ks = (get_macro(db) or {}).get("key_rate") or 0.145
+    cur_ks = effective_key_rate(db) or 0.145
     tr = None
     try:
         from app.core import llm_macro

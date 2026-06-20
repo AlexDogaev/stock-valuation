@@ -643,11 +643,12 @@ def screen_fx(db: sqlite3.Connection) -> dict:
         fxb = mb.fetch_bonds(mb.CORP_BOARD, fx=True) + mb.fetch_bonds(mb.OFZ_BOARD, fx=True)
     except Exception as e:  # noqa: BLE001
         return {"error": f"MOEX ISS недоступен: {type(e).__name__}", "bonds": [], "count": 0}
-    # FX-доходности ниже рублёвых (в валюте бумаги): диапазон 2–20%, ликвидность скромнее.
-    # КРЕДИТ-ФИЛЬТР (находка Саши по Автом01CNY): защитный рукав = ИНВЕСТ-ГРЕЙД (листинг 1-2),
-    # НЕ ВДО (листинг 3). У FX нет валютной G-curve для PD-из-спреда → листинг = прокси качества.
-    # Иначе мусорный юаневый ВДО (CNY-YTM 16-17% = ~14пп кредитного спреда) попадал в защиту как «хедж».
-    clean = sorted([b for b in fxb if mb.is_sane(b, min_dur=0.5, ytm_lo=0.02, ytm_hi=0.20, min_trades=3)
+    # КРЕДИТ-ФИЛЬТР замещаек (находка Саши по Автом01CNY): защитный рукав = ИНВЕСТ-ГРЕЙД, НЕ ВДО.
+    # Два слоя (у FX нет валютной G-curve для PD-из-спреда → косвенные прокси качества):
+    #   (1) листинг MOEX 1-2 (3=ВДО + unknown отсекаются);
+    #   (2) YTM-потолок 12% в ВАЛЮТЕ бумаги — высокая валютная доходность = спрятанный кредит-спред
+    #       (ПР-Лиз 13.5% USD/листинг 2 отсекается; Акрон/ГТЛК/РФ ЗО ≤8% остаются). Прежние 20% слишком мягки.
+    clean = sorted([b for b in fxb if mb.is_sane(b, min_dur=0.5, ytm_lo=0.02, ytm_hi=0.12, min_trades=3)
                     and b["coupon_type"] in mb.CLASSIC and (b.get("listlevel") in (1, 2))],
                    key=lambda x: -x["num_trades"])[:60]
     out: list[dict] = []

@@ -236,7 +236,8 @@ async function initNwfMarker() {
     document.getElementById("nwf-pop")?.removeAttribute("hidden");
   });
 
-  renderShock(r);             // форвардный риск ШОКА
+  try { r.outlook = await getJSON("/outlook"); } catch (e) { /* движок недоступен → старый Opus */ }
+  renderShock(r);             // форвардный риск ШОКА (headline — из движка hazard)
   renderRateTrajectory(r);    // траектория ключевой ставки (Opus по пейсу + риторике)
 }
 
@@ -252,14 +253,21 @@ function renderShock(r) {
       <div class="nwf-pop" id="shock-pop" hidden><div class="nwf-pop-head nwf-edge">Риск ШОКа</div>
         <div class="nwf-analysis muted">Оценка Опуса не сгенерирована. <a href="#" id="shock-analyze">прогнать</a></div></div>`;
   } else {
-    const annual = Math.round(s.aggregate_pct);
+    // headline — ДВИЖОК hazard (фон × EWI + структурный горб); fallback на старый Opus aggregate
+    const haz = r.outlook && r.outlook.hazard;
+    const annualFrac = haz ? haz.annual : (s.aggregate_pct / 100);
+    const annual = Math.round(annualFrac * 100);
     const hzSel = document.getElementById("g-horizon");
     const H = hzSel ? (parseInt(hzSel.value) || 1) : 1;
-    const p = Math.round((1 - Math.pow(1 - s.aggregate_pct / 100, H)) * 100);  // кумулятив за горизонт
+    const p = Math.round((1 - Math.pow(1 - annualFrac, H)) * 100);  // кумулятив за горизонт
     const cls = p > 70 ? "avoid" : p >= 30 ? "edge" : "buy";  // шкала: <30 зел · 30-70 жёлт · >70 красн (на кумулятив)
-    // дов.интервал hazard (red-team #1): 4 разнородных кризиса → ~×0.6…×1.45 вокруг точки
-    const pLo = Math.round((1 - Math.pow(1 - annual * 0.6 / 100, H)) * 100);
-    const pHi = Math.round((1 - Math.pow(1 - Math.min(60, annual * 1.45) / 100, H)) * 100);
+    const bLo = haz && haz.annual_band ? haz.annual_band[0] : annualFrac * 0.6;
+    const bHi = haz && haz.annual_band ? haz.annual_band[1] : Math.min(0.6, annualFrac * 1.45);
+    const pLo = Math.round((1 - Math.pow(1 - bLo, H)) * 100);
+    const pHi = Math.round((1 - Math.pow(1 - bHi, H)) * 100);
+    const engineLine = haz
+      ? `<div class="nwf-alloc">движок: фон ${Math.round(haz.base_fond * 100)}% × EWI ×${haz.ewi_multiplier} (скор ${haz.ewi_score}) + горб ${(haz.structural_hump * 100).toFixed(1)}% → <b>${annual}%/год</b></div>`
+      : "";
     const when = (s.created_at || "").replace("T", " ");
     const scen = (s.scenarios || []).map(x => {
       const pp = Math.round(x.prob_pct || 0);
@@ -276,6 +284,7 @@ function renderShock(r) {
       <div class="nwf-pop" id="shock-pop" hidden>
         <div class="nwf-pop-head nwf-${cls}">Риск ШОКа · ${p}% <span class="muted" style="font-weight:400">(${pLo}–${pHi}%)</span> за ${H} г <span class="muted" style="font-weight:400">· годовой ${annual}%</span>
           <a href="#" id="shock-analyze" title="прогнать заново" style="float:right;font-weight:400">↻</a></div>
+        ${engineLine}
         <div class="nwf-rows">${scen}</div>
         ${metrics}
         <p class="nwf-note">${glossarize(s.note || "")}</p>

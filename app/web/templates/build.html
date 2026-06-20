@@ -1,0 +1,124 @@
+{% extends "base.html" %}
+{% block head %}
+<style>
+  .bld-ctl { display: flex; flex-wrap: wrap; gap: 22px; align-items: flex-end; margin: 16px 0 6px; }
+  .bld-ctl label { display: block; font-size: 12px; color: var(--muted); letter-spacing: .05em; margin-bottom: 5px; }
+  .bld-ctl select, .bld-ctl input { background: none; border: 1px solid var(--hair); color: var(--ink);
+    font-family: inherit; font-size: 15px; padding: 7px 10px; border-radius: 0; }
+  .bld-ctl input { width: 70px; }
+  #bld-go { background: var(--ink); color: var(--bg); border: 0; padding: 9px 18px; cursor: pointer; font-family: inherit; font-size: 14px; }
+  .pf-row { display: flex; flex-wrap: wrap; gap: 34px; align-items: baseline; margin: 6px 0; }
+  .pf-stat .k { font-size: 12px; color: var(--muted); display: block; margin-bottom: 2px; }
+  .pf-stat .v { font-size: 23px; font-family: "JetBrains Mono", monospace; }
+  .pf-risk { padding: 14px 18px; }
+  .pf-risk .v.bad { color: var(--avoid); } .pf-risk .v.ok { color: var(--buy); } .pf-risk .v.mid { color: var(--edge); }
+  .pf-bar { height: 22px; display: flex; border-radius: 0; overflow: hidden; margin: 10px 0 4px; border: 1px solid var(--hair); }
+  .pf-bar span { display: block; height: 100%; }
+  .seg-eq { background: var(--buy); } .seg-bond { background: #4a6a8a; } .seg-fx { background: var(--edge); } .seg-cash { background: var(--hair); }
+  #pf-tbl th, #pf-tbl td { padding: 10px 13px; }
+  #pf-tbl td:first-child { font-size: 14px; }
+  .a-eq { color: var(--buy); } .a-bond { color: #7fa8cf; } .a-fx { color: var(--edge); }
+</style>
+{% endblock %}
+{% block content %}
+<div class="toolbar">
+  <div>
+    <h1>Что купить</h1>
+    <p class="sub">Портфель «купил и держи» под твой горизонт, агрессивность, инфляцию и таргет. Доходности —
+      реальные (над выбранной инфляцией), с поправкой на шок. Survival-first: защитный рукав держит хвост.</p>
+  </div>
+</div>
+<div class="bld-ctl">
+  <div><label>Горизонт</label>
+    <select id="bld-horizon">
+      <option>1</option><option>3</option><option selected>5</option><option>7</option>
+      <option>10</option><option>15</option><option>20</option>
+    </select></div>
+  <div><label>Агрессивность</label>
+    <select id="bld-aggr">
+      <option>Агрессивный</option><option selected>Сбалансированный</option><option>Консервативный</option>
+    </select></div>
+  <div><label>Ожид. инфляция, %/год</label><input type="number" id="bld-infl" step="0.5" value="8.0"></div>
+  <div><label>Таргет реал., %/год</label><input type="number" id="bld-target" step="0.5" value="5.0"></div>
+  <div><button id="bld-go" type="button">Собрать портфель</button></div>
+</div>
+<p class="sub" id="bld-aggr-note"></p>
+<div id="bld-out" hidden>
+  <div class="panel"><div class="pf-row">
+    <div class="pf-stat"><span class="k" id="pf-real-k">Ожид. реальная (год)</span><span class="v" id="pf-real"></span></div>
+    <div class="pf-stat"><span class="k">Таргет</span><span class="v" id="pf-target"></span></div>
+    <div class="pf-stat"><span class="k">P(≥1 шок за горизонт)</span><span class="v" id="pf-pshock"></span></div>
+  </div>
+    <div class="pf-bar" id="pf-bar"></div>
+    <div class="sub" id="pf-weights"></div>
+  </div>
+  <div class="panel pf-risk">
+    <div class="pf-row">
+      <div class="pf-stat"><span class="k" title="вероятность безвозвратной потери ≥90% (катастрофа L-типа + дефолты + экспроприация)">Риск полного обнуления</span><span class="v" id="pf-wipeout"></span></div>
+      <div class="pf-stat"><span class="k" title="вероятность потери ≥50% РЕАЛЬНОЙ стоимости за горизонт (глубокий шок + инфляция)">Риск −50% реального</span><span class="v" id="pf-loss50"></span></div>
+    </div>
+    <p class="sub" id="pf-risk-note"></p>
+  </div>
+  <div class="panel" style="padding:0;overflow:hidden">
+    <table id="pf-tbl"><thead><tr>
+      <th>Инструмент</th><th>Класс</th><th>Вес</th><th>Реал./год ✻</th><th>Примечание</th>
+    </tr></thead><tbody id="pf-rows"></tbody></table>
+  </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+function seg(cls, w) { return w > 0.001 ? `<span class="${cls}" style="width:${(w*100).toFixed(1)}%" title="${(w*100).toFixed(0)}%"></span>` : ""; }
+async function loadBuild() {
+  const h = document.getElementById("bld-horizon").value;
+  const aggr = document.getElementById("bld-aggr").value;
+  const infl = (parseFloat(document.getElementById("bld-infl").value) || 0) / 100;
+  const target = (parseFloat(document.getElementById("bld-target").value) || 0) / 100;
+  const btn = document.getElementById("bld-go"); btn.disabled = true; btn.textContent = "Собираю…";
+  let r;
+  try { r = await getJSON(`/build_portfolio?horizon=${h}&aggressiveness=${encodeURIComponent(aggr)}&inflation=${infl}&target=${target}`); }
+  finally { btn.disabled = false; btn.textContent = "Собрать портфель"; }
+  if (!r || r.error) return;
+  document.getElementById("bld-out").removeAttribute("hidden");
+
+  document.getElementById("pf-real-k").textContent = `Ожид. реальная (год) · ${h}л`;
+  const realEl = document.getElementById("pf-real");
+  realEl.innerHTML = pctSigned(r.exp_real);
+  document.getElementById("pf-target").textContent = pct(r.target_real) + (r.meets_target ? " ✓" : " ✗");
+  document.getElementById("pf-target").style.color = r.meets_target ? "var(--buy)" : "var(--avoid)";
+  document.getElementById("pf-pshock").textContent = pct(r.p_shock_cum);
+
+  const wq = r.weights;
+  document.getElementById("pf-bar").innerHTML =
+    seg("seg-eq", wq.equity) + seg("seg-bond", wq.bond_total) + seg("seg-fx", wq.fx) + seg("seg-cash", wq.cash);
+  document.getElementById("pf-weights").innerHTML =
+    `Акции <b>${pct(wq.equity)}</b> · облигации <b>${pct(wq.bond_total)}</b> (корп ${pct(wq.corp)}) · ` +
+    `замещайки <b>${pct(wq.fx)}</b> · кэш/порох <b>${pct(wq.cash)}</b> · ${r.n_equity} акций + ${r.n_bond} бондов + ${r.n_fx} замещаек`;
+
+  const wipe = document.getElementById("pf-wipeout"); wipe.textContent = pct(r.wipeout_risk);
+  wipe.className = "v " + (r.wipeout_risk > 0.05 ? "bad" : r.wipeout_risk > 0.02 ? "mid" : "ok");
+  const l50 = document.getElementById("pf-loss50"); l50.textContent = pct(r.loss50_risk);
+  l50.className = "v " + (r.loss50_risk > 0.25 ? "bad" : r.loss50_risk > 0.12 ? "mid" : "ok");
+  document.getElementById("pf-risk-note").textContent =
+    "Оценки от макро-прогноза: вероятность шока за горизонт × глубина просадки по составу портфеля. " +
+    "Обнуление — катастрофа L-типа + дефолты/экспроприация (защитный рукав ОФЗ/линкер/замещайка выживает). " +
+    "−50% реал — глубокий шок + инфляция (драйвер — доля акций).";
+
+  const acls = a => a === "Акция" ? "a-eq" : (a === "Замещайка" ? "a-fx" : "a-bond");
+  document.getElementById("pf-rows").innerHTML = r.holdings.map(hh => `<tr>
+    <td>${hh.name}</td>
+    <td class="${acls(hh.asset)}">${hh.asset}${hh.subtype ? ` <span class="muted">${hh.subtype}</span>` : ""}</td>
+    <td class="num"><b>${pct(hh.weight)}</b></td>
+    <td class="num">${pctSigned(hh.real)}</td>
+    <td class="muted" style="font-size:12px">${hh.quality ? hh.quality : ""}${hh.tail_gate === "cap" ? " ⚠риск" : ""}</td>
+  </tr>`).join("") + (wq.cash > 0.01 ? `<tr><td>Кэш / порох</td><td class="muted">—</td><td class="num"><b>${pct(wq.cash)}</b></td><td class="num">0%</td><td class="muted" style="font-size:12px">${r.bonds_unavailable ? "⚠ облигации MOEX недоступны — повтори сборку" : "не хватило проходящих имён под лимит (рынок дорог)"}</td></tr>` : "");
+}
+document.getElementById("bld-go").addEventListener("click", loadBuild);
+const aggrNote = {"Агрессивный":"до 70% в акциях","Сбалансированный":"до 50% в акциях","Консервативный":"до 30% в акциях"};
+document.getElementById("bld-aggr").addEventListener("change", e => {
+  document.getElementById("bld-aggr-note").textContent = aggrNote[e.target.value] || "";
+});
+document.getElementById("bld-aggr-note").textContent = aggrNote["Сбалансированный"];
+loadBuild();
+</script>
+{% endblock %}

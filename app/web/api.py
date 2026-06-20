@@ -46,6 +46,19 @@ def macro_outlook():
         return mo.build_outlook(db).as_dict()
 
 
+@router.get("/build_portfolio")
+def build_portfolio(horizon: int = 5, aggressiveness: str = "Сбалансированный",
+                    inflation: float = 0.08, target: float = 0.05):
+    """Блок «Что купить»: портфель купил-держи под горизонт/агрессивность/инфляцию/таргет + риски."""
+    from app.core import portfolio_builder as pb
+    cap = pb.AGGRESSIVENESS.get(aggressiveness, 0.50)
+    with get_db() as db:
+        res = pb.build(db, horizon=horizon, equity_cap=cap, exp_inflation=inflation, target_real=target)
+    res["aggressiveness"] = aggressiveness
+    res["aggressiveness_options"] = list(pb.AGGRESSIVENESS.keys())
+    return res
+
+
 @router.get("/scenario")
 def scenario():
     """Сценарий buy-and-hold: реальная доходность за 3/5/10/20 лет с учётом инфляции и шока."""

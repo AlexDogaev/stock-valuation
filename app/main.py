@@ -78,6 +78,11 @@ def bonds_page(request: Request):
     return _page(request, "bonds.html", title="Облигации")
 
 
+@app.get("/build", response_class=HTMLResponse)
+def build_page(request: Request):
+    return _page(request, "build.html", title="Что купить")
+
+
 @app.get("/settings", response_class=HTMLResponse)
 def settings_page(request: Request):
     return _page(request, "settings.html", title="Настройки")

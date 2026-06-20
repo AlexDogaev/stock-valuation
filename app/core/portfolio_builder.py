@@ -127,41 +127,40 @@ def build(db, *, horizon: int, equity_cap: float, exp_inflation: float, target_r
     # ── ОЖИДАЕМАЯ РЕАЛЬНАЯ (взвешенная, шок-скорректированная); кэш=0 реал ──
     exp_real = round(sum(h["weight"] * h["real"] for h in holdings), 4)
 
-    # ── РИСК НЕ ОБЫГРАТЬ ИНФЛЯЦИЮ: P(реальная доходность за горизонт < 0, потеря покупат. способности) ──
-    # БИМОДАЛЬ (аудит v2 #2: НЕ гауссиан — модель стоит на толстых хвостах/бимодальности, σ/√H их сглаживал).
-    #   База (без шока): r_base = exp_real + шок-драг (что был вычтен) — обычно положителен.
-    #   Шок (условно ЕСЛИ шок): r_shock = r_base − условные удары: просадка акций + ВСПЛЕСК ИНФЛЯЦИИ на
-    #     фикс-номинальных (купон фиксирован → инфл съедает реал; линкер/флоат защищены) + кредит − девал-хедж.
+    # ── ЕДИНАЯ МОДЕЛЬ РИСКА: 4 сценария за горизонт → ТРИ ВЛОЖЕННЫХ порога (находка Саши). ──
+    # Исправляет нестыковку: «не обыграть инфляцию» (реал<0) ⊇ «−50% реал» ⊇ «обнуление ≥90%» —
+    # три события вложены, значит miss ≥ loss50 ≥ wipeout ПО ПОСТРОЕНИЮ. Раньше три независимые
+    # формулы давали miss=0 при loss50=5.8% (логически невозможно: потеря 50% реала ЕСТЬ реал<0).
     g_shock = sum(h["weight"] * (h.get("shock_drag") or 0.0) for h in holdings)
-    r_base = exp_real + g_shock                                      # реал БЕЗ шока (базовый путь)
+    r_base = exp_real + g_shock                                      # годовая реал БЕЗ шока
+    base_cum = (1.0 + r_base) ** horizon - 1.0                      # накопленная реал без шока (обычно > 0)
+    fx_hedge = fxw * outlook.shock.fx_pct * 0.5                     # девал-выигрыш замещаек в шоке
+    bond_default = sum(h["weight"] * (h.get("pd_horizon") or 0.0) * LGD
+                       for h in holdings if h["asset"] == "Облигация")   # перм.дефолты бондов за срок
+    # перманентные просадки портфеля (доля стоимости) по тяжести шока:
+    eq_perm = abs(outlook.shock.equity_dd) * (1.0 - outlook.shock.recovery_1y)   # норм.шок: акции с V-отскоком
+    central_dd = max(0.0, eqw * eq_perm + corpw * CORP_SHOCK_LOSS - fx_hedge)
+    deep_dd    = max(0.0, eqw * DEEP_DD + corpw * CORP_SHOCK_LOSS - fx_hedge)
+    cat_dd     = min(1.0, eqw * 0.90 + corpw * 0.50 + bond_default)              # L: акции −90% без отскока + дефолты
+    # всплеск инфляции в шоке бьёт ФИКС-НОМИНАЛ (купон фиксирован; линкер/флоат защищены), кумул. за окно:
     fixed_nom_w = sum(h["weight"] for h in holdings
                       if h["asset"] == "Облигация" and h.get("coupon_type") == "Фикс") + cash
-    infl_spike = outlook.shock.infl_pp * min(1.0, outlook.norm_years / max(1, horizon))   # годовой over H
-    eq_cond = sum(h["weight"] * (h.get("shock_drag") or 0.0) for h in holdings if h["asset"] == "Акция")
-    bond_cond = sum(h["weight"] * (h.get("shock_drag") or 0.0) for h in holdings if h["asset"] == "Облигация")
-    cond_mult = (1.0 / p_shock) if p_shock > 1e-6 else 0.0          # ожид.драг → УСЛОВНЫЙ (если шок случился)
-    fx_gain = fxw * outlook.shock.fx_pct / max(1, horizon)          # девал-выигрыш замещаек (годовой)
-    shock_drag_total = (eq_cond + bond_cond) * cond_mult + fixed_nom_w * infl_spike - fx_gain
-    r_shock = r_base - shock_drag_total
-    if shock_drag_total > 1e-6:                                     # рампа: запас ≥2× удара → переживает (0); ≤1× → пробой (1)
-        p_neg_shock = min(1.0, max(0.0, 2.0 - r_base / shock_drag_total))
-    else:
-        p_neg_shock = 1.0 if r_shock < 0 else 0.0
-    miss_infl_risk = round(p_shock * p_neg_shock + (1.0 - p_shock) * (1.0 if r_base < 0 else 0.0), 4)
+    infl_erosion = fixed_nom_w * outlook.shock.infl_pp * min(float(horizon), outlook.norm_years)
+    # тиры шока (L ⊂ deep): нормальный / глубокий-не-L / L-катастрофа; ΣP = 1
+    dshare = min(1.0, deep_share); lw = min(lstag_w, dshare)
+    p_L, p_deep, p_norm = lw, dshare - lw, 1.0 - dshare
 
-    # ── РИСК −50% РЕАЛ: вероятность шока × доля «глубоких» × экспозиция к глубокой просадке ──
-    # глубокая просадка портфеля = акции×DEEP_DD + корп×шок-потеря − замещайки×девал-выигрыш (хедж).
-    deep_drop = eqw * DEEP_DD + corpw * CORP_SHOCK_LOSS - fxw * outlook.shock.fx_pct * 0.5
-    loss50_risk = round(p_shock * deep_share * min(1.0, max(0.0, deep_drop) / 0.50), 4)
-
-    # ── РИСК ПОЛНОГО ОБНУЛЕНИЯ (≥90% безвозвратно): катастрофа L + дефолты + tail-флаги ──
-    # L-сценарий: акции −90% без отскока + корп дефолты; ОФЗ/линкер/замещайка/кэш выживают.
-    catastrophe_loss = eqw * 0.90 + corpw * 0.50           # доля портфеля, уничтожаемая в L-катастрофе
-    wipeout_systemic = p_shock * lstag_w * min(1.0, catastrophe_loss / 0.90)
-    # перманентные дефолты бондов (кумулятивно за срок):
-    bond_default = sum(h["weight"] * (h.get("pd_horizon") or 0.0) * LGD
-                       for h in holdings if h["asset"] == "Облигация")
-    wipeout_risk = round(min(1.0, wipeout_systemic + bond_default * 0.3), 4)
+    def _cum(dd):                                                   # накопл. реал в шоке = просадка + инфл-эрозия
+        return (1.0 + base_cum) * (1.0 - dd) - 1.0 - infl_erosion
+    scen = [                                                        # (вероятность, накопл. реал за горизонт)
+        (1.0 - p_shock, base_cum),                                 # без шока
+        (p_shock * p_norm, _cum(central_dd)),                      # нормальный шок (V-отскок)
+        (p_shock * p_deep, _cum(deep_dd)),                         # глубокий
+        (p_shock * p_L,    _cum(cat_dd)),                          # L-катастрофа (без отскока)
+    ]
+    miss_infl_risk = round(sum(pr for pr, rc in scen if rc < 0.0), 4)        # P(реал<0) — не обыграть инфляцию
+    loss50_risk    = round(sum(pr for pr, rc in scen if rc < -0.50), 4)      # P(потеря ≥50% реала)
+    wipeout_risk   = round(sum(pr for pr, rc in scen if rc <= -0.90), 4)     # P(обнуление ≥90%)
 
     meets_target = exp_real >= target_real
 

@@ -110,6 +110,16 @@ TAIL_PREMIUM_PP = 0.012     # +1.2пп к hurdle за каждый балл об
 TAIL_PREMIUM_CAP = 0.05     # потолок премии (выше — гейт всё равно снимет сигнал)
 WAIT_PREMIUM = 0.05         # v6 §1.5 ЗАМОК: forward-история (группа Б) → ПОКУПАЙ только с ДИСКОНТОМ
                             # (реал ≥ hurdle + премия за ожидание), иначе нет смысла vs безриск ОФЗ
+# v6 §0.4 ПОРОДА происхождения → предсказывает ГЛАВНЫЙ риск (на MOEX нет органического роста из малого).
+BREED_RISK = {
+    "privatization": "Приватизация совнаследия (нефтегаз/металлы/энергетика) → риск = ИЗЪЯТИЕ ренты + её сжатие.",
+    "state": "Госсозданная (Сбер/ВТБ/Совкомфлот) → риск = ГОСОТНОШЕНИЯ (наделение/изъятие).",
+    "oligarch": "Олигархат 90-х (X5/АФК) → риск СМЕШАННЫЙ.",
+    "venture": "Венчур/IPO (Яндекс/Ozon/Т/IT) → риск = РАЗМЫТИЕ (продолжают привлекать капитал).",
+    "debt": "Долговое плечо без акц.капитала (WB/М.Видео) → риск = ПОТЕРЯ КОНТРОЛЯ через долг-перехват (часто госкредитором).",
+}
+BREED_RU = {"privatization": "приватизация", "state": "госсозданная", "oligarch": "олигархат-90х",
+            "venture": "венчур/IPO", "debt": "долговое плечо"}
 
 
 def macro_hurdle_delta(F: float, qmark: str, currency_profile: str = "MIXED") -> float:
@@ -134,6 +144,7 @@ def evaluate_issuer(db: sqlite3.Connection, secid: str, macro_frag: dict | None 
                   s.mult_seed, s.note AS struct_note, s.monetization_proven, s.is_platform,
                   s.moat_risk, s.is_enabler,
                   s.minority_risk, s.expropriation_risk, s.delisting_risk, s.sanctions_risk, s.liquidity_risk,
+                  s.breed, s.pricing_pressure,
                   f.needs_review
            FROM issuers i
            LEFT JOIN market_data m ON m.secid = i.secid
@@ -363,6 +374,13 @@ def evaluate_issuer(db: sqlite3.Connection, secid: str, macro_frag: dict | None 
             f"Тектоника (рама §1-7): {tect.note}. g скорректирован {tect.sector_delta*100:+.1f}пп; "
             f"базовый g рынка {tect.g_market_base*100:.1f}% реальн. ({tect.period}). NB §2: демография — "
             f"top-down, per-эмитентный demo-балл должен быть РЕЗИДУАЛЬНЫМ (открытая калибровка §13).")
+    if r["breed"] and r["breed"] in BREED_RISK:
+        warnings.append(f"Порода (§0.4): {BREED_RISK[r['breed']]}")
+    if (r["pricing_pressure"] or 0) >= 1:
+        warnings.append(
+            f"ЦЕНОПРЕССИНГ (§0.3, 3-й канал изъятия, уровень {r['pricing_pressure']}/2): соц-базовое благо → "
+            f"государство политически прижимает цену (еда/ЖКХ/ЖНВЛП) → бьёт по МАРЖЕ. Мета-правило: чем "
+            f"социально-базовее продукт, тем враждебнее форма. Доходность минора = остаток после изъятия.")
     if (r["moat_risk"] or 0) >= 1:
         warnings.append(
             f"Уязвимость рва к дизрупции (§4/§9, уровень {r['moat_risk']}/2): технология — фактор РИСКА "
@@ -515,6 +533,11 @@ def evaluate_issuer(db: sqlite3.Connection, secid: str, macro_frag: dict | None 
             "monetization_proven": bool(r["monetization_proven"]),
             "is_platform": bool(r["is_platform"]),
             "moat_risk": r["moat_risk"] or 0, "is_enabler": bool(r["is_enabler"]),
+            "breed": r["breed"], "breed_ru": BREED_RU.get(r["breed"]),     # v6 §0.4 порода
+            "rent_channels": {                                             # v6 §0.3 три канала изъятия
+                "pricing": r["pricing_pressure"] or 0,                     # ценопрессинг → маржа
+                "dilution": r["minority_risk"] or 0,                       # размытие → доля
+                "expropriation": r["expropriation_risk"] or 0},            # огосударствление → извлечение
             "note": r["struct_note"], "warnings": struct_res.warnings,
         },
         "calc": {

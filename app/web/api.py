@@ -194,6 +194,26 @@ def update_tail_risk(secid: str, body: TailRiskIn):
     return res
 
 
+class FormIn(BaseModel):
+    """v6 §0.3/0.4: порода происхождения + ценопрессинг (3-й канал изъятия). Суждение, как баллы."""
+    breed: str | None = None       # privatization|state|oligarch|venture|debt|None
+    pricing_pressure: int = 0      # 0 нет / 1 повышенный / 2 острый
+
+
+@router.put("/issuers/{secid}/form")
+def update_form(secid: str, body: FormIn):
+    """Апдейт породы + ценопрессинга (не клобберит структурные баллы / tail_risk)."""
+    with get_db() as db:
+        exists = db.execute("SELECT 1 FROM issuers WHERE secid = ?", (secid.upper(),)).fetchone()
+        if not exists:
+            raise HTTPException(404, f"Эмитент {secid} не найден")
+        data = body.model_dump()
+        data.update(secid=secid.upper())
+        upsert(db, "structural", data, pk="secid")
+        res = engine.evaluate_issuer(db, secid)
+    return res
+
+
 @router.post("/issuers/{secid}/llm_draft")
 def gen_llm_draft(secid: str):
     """Сгенерировать LLM-черновик структурных баллов (Opus). Нужен .anthropic_key."""

@@ -120,8 +120,11 @@ function render(x) {
                      ["Санкц.заморозка","sanctions_risk","sanctions"],
                      ["Неликвидность выхода","liquidity_risk","liquidity"]];
   const tf = (x.tail_risk && x.tail_risk.flags) || {};
-  const chips = dims.map(([lbl,k]) =>
+  const rc = s.rent_channels || {};
+  let chips = dims.map(([lbl,k]) =>
     `<span class="chip">${lbl}: <b>${s[k]>=0?"+":""}${s[k]}</b></span>`).join("");
+  if (s.breed_ru) chips += `<span class="chip" title="порода происхождения → главный риск (§0.4)">порода: <b>${s.breed_ru}</b></span>`;
+  if ((rc.pricing||0) >= 1) chips += `<span class="chip" style="color:var(--avoid)" title="соц-базовое благо → госприжим цены → бьёт по марже (§0.3)">ценопрессинг ${rc.pricing}/2</span>`;
 
   let mature = "";
   if (x.mature && !x.mature.error) {
@@ -280,6 +283,30 @@ function render(x) {
       <div style="margin-top:12px"><button id="save-trisk">Сохранить и пересчитать</button>
         <span id="saved-trisk" class="muted" style="margin-left:10px"></span></div>
     </div>
+
+    <div class="panel"><h2>🏛 Форма изъятия (v6 §0.3/0.4 — суждение)</h2>
+      <p class="sub">Порода предсказывает главный риск; ценопрессинг (соц-базовое благо → госприжим цены) бьёт по
+        МАРЖЕ. Размытие/огосударствление — в блоке обнуляющих рисков выше (это те же каналы).</p>
+      <div class="grid">
+        <div><label>Порода происхождения (§0.4)</label>
+          <select id="fm-breed">
+            <option value=""${!s.breed?' selected':''}>— не задано —</option>
+            <option value="privatization"${s.breed==='privatization'?' selected':''}>приватизация → изъятие ренты</option>
+            <option value="state"${s.breed==='state'?' selected':''}>госсозданная → госотношения</option>
+            <option value="oligarch"${s.breed==='oligarch'?' selected':''}>олигархат-90х → смешанный</option>
+            <option value="venture"${s.breed==='venture'?' selected':''}>венчур/IPO → размытие</option>
+            <option value="debt"${s.breed==='debt'?' selected':''}>долговое плечо → перехват</option>
+          </select></div>
+        <div><label>Ценопрессинг — соц-базовое благо (§0.3, маржа)</label>
+          <select id="fm-pricing">
+            <option value="0"${(rc.pricing||0)==0?' selected':''}>нет</option>
+            <option value="1"${(rc.pricing||0)==1?' selected':''}>повышенный</option>
+            <option value="2"${(rc.pricing||0)==2?' selected':''}>острый</option>
+          </select></div>
+      </div>
+      <div style="margin-top:12px"><button id="save-form">Сохранить и пересчитать</button>
+        <span id="saved-form" class="muted" style="margin-left:10px"></span></div>
+    </div>
   </div>`;
 
   document.getElementById("card").innerHTML = summary + details;
@@ -311,6 +338,16 @@ function render(x) {
     document.getElementById("details").removeAttribute("hidden");
     document.getElementById("toggle-details").textContent = "Индикаторы −";
     document.getElementById("saved-trisk").textContent = "Сохранено ✓";
+  });
+
+  document.getElementById("save-form").addEventListener("click", async () => {
+    const body = { breed: document.getElementById("fm-breed").value || null,
+                   pricing_pressure: parseInt(document.getElementById("fm-pricing").value) || 0 };
+    const res = await sendJSON(`/issuers/${SECID}/form`, "PUT", body);
+    render(res);
+    document.getElementById("details").removeAttribute("hidden");
+    document.getElementById("toggle-details").textContent = "Индикаторы −";
+    document.getElementById("saved-form").textContent = "Сохранено ✓";
   });
 
   document.getElementById("llm-draft").addEventListener("click", async (e) => {

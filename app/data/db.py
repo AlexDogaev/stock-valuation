@@ -271,6 +271,9 @@ def init_db() -> None:
         _ensure_column(db, "structural", "delisting_risk", "INTEGER DEFAULT 0")      # делистинг
         _ensure_column(db, "structural", "sanctions_risk", "INTEGER DEFAULT 0")      # санкц.заморозка
         _ensure_column(db, "structural", "liquidity_risk", "INTEGER DEFAULT 0")      # неликвидность выхода
+        # v6 фаза 2: порода происхождения (0.4) + ценопрессинг (3-й канал изъятия 0.3, бьёт по марже)
+        _ensure_column(db, "structural", "breed", "TEXT")              # privatization|state|oligarch|venture|debt
+        _ensure_column(db, "structural", "pricing_pressure", "INTEGER DEFAULT 0")  # ценопрессинг 0/1/2 (соц-базовое благо)
         _ensure_column(db, "shock_risk", "expected_damage_pct", "REAL")  # Σ P×severity (#15)
         _ensure_column(db, "shock_risk", "independent_pct", "REAL")      # наивная 1−∏(1−p)
         _ensure_column(db, "shock_risk", "p_horizon3_pct", "REAL")       # P за 3 года (горизонт решения)

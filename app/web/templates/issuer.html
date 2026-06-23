@@ -178,6 +178,7 @@ function render(x) {
         <span class="vsignal ${sigClass(x.signal)}">${x.signal}</span>
         <span class="vsep">/</span>
         <span class="vquality ${qcls}">${x.quality_label}</span>
+        ${x.group_ab ? `<span class="vsep">/</span><span class="vquality" title="${x.group_ab==='А'?'Группа А: доходность СЕЙЧАС (прибыль+дивы) — основной капитал':'Группа Б: отдача ЗА горизонтом (forward / priced-in) — по факту приближения отдачи или с дисконтом, малой долей'}">группа ${x.group_ab}</span>` : ''}
         ${x.needs_review ? '<span class="vflag">⚠ пересмотр</span>' : ''}
         ${x.tail_risk && x.tail_risk.gate ? `<span class="vflag" title="${(x.tail_risk.notes||[]).join('; ')}">${x.tail_risk.gate==='block'?'⛔':'⚠'} обнуляющий риск</span>` : ''}
       </div>

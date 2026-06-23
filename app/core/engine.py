@@ -108,6 +108,8 @@ CURRENCY_FRAGILITY = {"EXPORTER": 0.3, "MIXED": 0.7, "DOMESTIC": 1.0}
 # риск экспроприации/делистинга/неликвидности требует БОЛЬШЕ премии. Σ severity (0..10) × pp, cap.
 TAIL_PREMIUM_PP = 0.012     # +1.2пп к hurdle за каждый балл обнуляющего риска
 TAIL_PREMIUM_CAP = 0.05     # потолок премии (выше — гейт всё равно снимет сигнал)
+WAIT_PREMIUM = 0.05         # v6 §1.5 ЗАМОК: forward-история (группа Б) → ПОКУПАЙ только с ДИСКОНТОМ
+                            # (реал ≥ hurdle + премия за ожидание), иначе нет смысла vs безриск ОФЗ
 
 
 def macro_hurdle_delta(F: float, qmark: str, currency_profile: str = "MIXED") -> float:
@@ -433,7 +435,17 @@ def evaluate_issuer(db: sqlite3.Connection, secid: str, macro_frag: dict | None 
     _base_pe = settings.get("normal_pe") or valuation.NORMAL_PE
     _integ = integ.assess(_ic, base_pe=_base_pe)
     normal_pe_eff = _base_pe * _integ.terminal_pe_mult
-    opt = valuation.optimism_priced_in(cap_bln=cap_bln, net_profit_bln=net_profit, normal_pe=normal_pe_eff)
+    # v6 §1.3 АПГРЕЙД: делитель аванса = КОМПАНИЙНО-СПЕЦИФИЧНЫЙ justified P/E (качеств. растущей положен
+    # мультипликатор >7 → ÷7 ложно метил «авансом» Полюс/Промомед/MDMG). Фикс normal_pe_eff — фоллбэк
+    # (нет payout / зона r≈g). Кламп [4,20]: низ = потолок P/E под hurdle (§1.1), верх — от взрыва при r→g.
+    avans_pe, avans_src = normal_pe_eff, "фикс"
+    if r["payout"] and g_eff < r_req:
+        try:
+            avans_pe = max(4.0, min(20.0, valuation.justified_pe(r["payout"], g_eff, r_req)))
+            avans_src = "justified"
+        except (ValueError, ZeroDivisionError):
+            avans_pe, avans_src = normal_pe_eff, "фикс"
+    opt = valuation.optimism_priced_in(cap_bln=cap_bln, net_profit_bln=net_profit, normal_pe=avans_pe)
     optimism_flag = bool(opt and opt.flag)
     if opt and opt.flag:
         if opt.ratio is None:
@@ -444,7 +456,30 @@ def evaluate_issuer(db: sqlite3.Connection, secid: str, macro_frag: dict | None 
         else:
             warnings.append(
                 f"Аванс в цене (§7): капа имплицирует ≈{opt.implied_profit:.0f} млрд прибыли "
-                f"(при P/E {opt.normal_pe:.0f}) — ×{opt.ratio:.1f} к текущей; оптимизм заложен в цену.")
+                f"(при P/E {opt.normal_pe:.1f}, {avans_src}) — ×{opt.ratio:.1f} к текущей; оптимизм заложен в цену.")
+
+    # v6 §1.6 ГРУППА А/Б: А — доходность СЕЙЧАС (реальная прибыль + дивы); Б — отдача за горизонтом (forward).
+    # Б = убыток ИЛИ аванс заложен в цену (рост priced-in). Привязано к детектору аванса (§1.3).
+    group_ab = "Б" if (loss or optimism_flag) else "А"
+    _heff = valuation.effective_hurdle(hurdle_eff, settings["regime"])
+
+    # v6 §1.5 ЗАМОК (равновесная цена ≠ выгодная покупка): forward-история (Б) при priced-in росте даёт
+    # В ПРЕДЕЛАХ горизонта ~carry (отдача ЗА горизонтом) → нет премии за ожидание, безриск ОФЗ даст не меньше.
+    # ПОКУПАЙ только с ДИСКОНТОМ (реал ≥ hurdle + премия_ожидания); иначе → ГРАНИЦА (опцион/по факту отдачи).
+    if group_ab == "Б" and signal == "ПОКУПАЙ" and eff_real_base < _heff + WAIT_PREMIUM:
+        signal = "ГРАНИЦА"
+        warnings.append(
+            f"ЗАМОК (§1.5): forward-история (группа Б) без дисконта за ожидание — реал {eff_real_base*100:.1f}% "
+            f"< hurdle+премия_ожидания {(_heff+WAIT_PREMIUM)*100:.1f}%. Равновесная цена оправдывает "
+            f"СУЩЕСТВОВАНИЕ цены, не ПОКУПКУ: отдача за горизонтом, безриск ОФЗ даст не меньше за то же время. "
+            f"Брать ПО ФАКТУ приближения отдачи или с дисконтом, малой долей как опцион — не на вере.")
+
+    # v6 §1.1 ПОТОЛОК P/E = 1/hurdle (на акционерной прибыли): при hurdle+инфл ~23% → max P/E ~4 (+дивы ~5).
+    max_pe_hurdle = (1.0 / (_heff + deflator)) if (_heff + deflator) > 0 else None
+    if max_pe_hurdle and pe and pe > max_pe_hurdle * 1.25:   # +25% допуск (дивиденды растягивают потолок)
+        warnings.append(
+            f"P/E {pe:.1f} ВЫШЕ потолка под hurdle (~{max_pe_hurdle:.1f} = 1/(hurdle+инфл); дивы растягивают до "
+            f"~{max_pe_hurdle*1.25:.1f}). Цена структурно дорога относительно требуемой доходности (§1.1).")
 
     # матрица §1: вердикт = пересечение [маркер качества] × [зона цены].
     # Зона из сигнала (буфер = margin of safety); «оптимизм в цене» (§7) → expensive.
@@ -495,6 +530,8 @@ def evaluate_issuer(db: sqlite3.Connection, secid: str, macro_frag: dict | None 
         "forecast": forecast,
         "signal": signal,
         "action": action,
+        "group_ab": group_ab,                     # v6 §1.6: А (доходность сейчас) / Б (forward за горизонтом)
+        "max_pe_hurdle": round(max_pe_hurdle, 1) if max_pe_hurdle else None,  # v6 §1.1: потолок P/E = 1/(hurdle+инфл)
         "price_zone": zone,
         "price_zone_label": decision.ZONE_LABELS_RU[zone],
         "optimism_priced_in": optimism_flag,

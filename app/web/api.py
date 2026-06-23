@@ -246,6 +246,7 @@ class FormIn(BaseModel):
     breed: str | None = None       # privatization|state|oligarch|venture|debt|None
     pricing_pressure: int = 0      # 0 нет / 1 повышенный / 2 острый
     nd_ebitda: float | None = None # Долг/EBITDA — частная порода × высокий долг → предперехват
+    renovation_node: int = 0       # 1 = поставщик узла реновации Триады (книга Гл.16): кабель/трубы/металл/цемент
 
 
 @router.put("/issuers/{secid}/form")

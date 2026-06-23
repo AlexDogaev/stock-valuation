@@ -126,6 +126,7 @@ function render(x) {
   if (s.breed_ru) chips += `<span class="chip" title="порода происхождения → главный риск (§0.4)">порода: <b>${s.breed_ru}</b></span>`;
   if ((rc.pricing||0) >= 1) chips += `<span class="chip" style="color:var(--avoid)" title="соц-базовое благо → госприжим цены → бьёт по марже (§0.3)">ценопрессинг ${rc.pricing}/2</span>`;
   if (s.preseizure) chips += `<span class="chip" style="color:var(--avoid)" title="частная порода + высокий долг (Долг/EBITDA ${s.nd_ebitda}) → профиль предперехвата (книга Гл.7): двойная уязвимость, идеальный объект перехвата">⚠ предперехват</span>`;
+  if (s.renovation_node) chips += `<span class="chip" style="color:var(--edge)" title="поставщик узла реновации Триады Жильё-ЖКХ-Электро (книга Гл.16): детерм. многолетний спрос замены. g +${((s.reno_delta||0)*100).toFixed(1)}пп. NB: реализация=триаж, надбавка скромна">🏗 узел реновации</span>`;
 
   let mature = "";
   if (x.mature && !x.mature.error) {
@@ -307,6 +308,12 @@ function render(x) {
         <div><label>Долг/EBITDA — профиль предперехвата (Гл.7)</label>
           <input type="number" step="0.1" id="fm-nd" value="${s.nd_ebitda!=null?s.nd_ebitda:''}" placeholder="напр. 3.5">
           <span class="sub" style="font-size:11px">частная порода + высокий долг (≥3) → ↑экспроприация</span></div>
+        <div><label>Узел реновации Триады (Гл.16, поставщик)</label>
+          <select id="fm-reno">
+            <option value="0"${!s.renovation_node?' selected':''}>нет</option>
+            <option value="1"${s.renovation_node?' selected':''}>да — кабель/трубы/металл/цемент</option>
+          </select>
+          <span class="sub" style="font-size:11px">поставщик замены Жильё-ЖКХ-Электро → +g за многолетний спрос. НЕ операторы (тариф)</span></div>
       </div>
       <div style="margin-top:12px"><button id="save-form">Сохранить и пересчитать</button>
         <span id="saved-form" class="muted" style="margin-left:10px"></span></div>
@@ -348,7 +355,8 @@ function render(x) {
     const ndv = parseFloat(document.getElementById("fm-nd").value);
     const body = { breed: document.getElementById("fm-breed").value || null,
                    pricing_pressure: parseInt(document.getElementById("fm-pricing").value) || 0,
-                   nd_ebitda: isNaN(ndv) ? null : ndv };
+                   nd_ebitda: isNaN(ndv) ? null : ndv,
+                   renovation_node: parseInt(document.getElementById("fm-reno").value) || 0 };
     const res = await sendJSON(`/issuers/${SECID}/form`, "PUT", body);
     render(res);
     document.getElementById("details").removeAttribute("hidden");

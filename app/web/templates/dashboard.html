@@ -99,7 +99,7 @@ const getters = {
 
 function rowCells(x) {
   return `
-      <td><a href="/issuer/${x.secid}">${x.name}</a> <small class="muted">${x.secid}</small></td>
+      <td><a href="/issuer/${x.secid}">${x.name}</a> <small class="muted">${x.secid}</small>${x.structural && x.structural.renovation_node ? ' <span title="узел реновации Триады Жильё-ЖКХ-Электро (книга Гл.16): поставщик замены, детерм. многолетний спрос" style="color:var(--edge)">🏗</span>' : ''}</td>
       <td class="muted col-extra">${x.sector || ""}</td>
       <td class="num">${x.market.price !== null ? x.market.price.toLocaleString("ru") : "—"}</td>
       <td class="num col-extra">${x.market.cap_bln !== null ? Math.round(x.market.cap_bln).toLocaleString("ru") : "—"}</td>

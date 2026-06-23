@@ -13,6 +13,7 @@ from typing import Any
 
 from app.config import FORECAST_YEARS, DEFAULTS
 from app.core import valuation, structural, classify, rate, quality_markers, decision, tax, tectonic, tail_risk
+from app.core import breakthrough
 from app.data.db import get_db, get_settings, get_macro, roic_years, effective_key_rate
 
 
@@ -109,6 +110,7 @@ CURRENCY_FRAGILITY = {"EXPORTER": 0.3, "MIXED": 0.7, "DOMESTIC": 1.0}
 TAIL_PREMIUM_PP = 0.012     # +1.2пп к hurdle за каждый балл обнуляющего риска
 TAIL_PREMIUM_CAP = 0.05     # потолок премии (выше — гейт всё равно снимет сигнал)
 WAIT_PREMIUM = 0.05         # v6 §1.5 ЗАМОК: forward-история (группа Б) → ПОКУПАЙ только с ДИСКОНТОМ
+RENOVATION_G_MAX = 0.010    # узел реновации (Гл.16): потолок надбавки к g за детерм. многолетний спрос замены
                             # (реал ≥ hurdle + премия за ожидание), иначе нет смысла vs безриск ОФЗ
 # v6 §0.4 ПОРОДА происхождения → предсказывает ГЛАВНЫЙ риск (на MOEX нет органического роста из малого).
 BREED_RISK = {
@@ -148,7 +150,7 @@ def evaluate_issuer(db: sqlite3.Connection, secid: str, macro_frag: dict | None 
                   s.mult_seed, s.note AS struct_note, s.monetization_proven, s.is_platform,
                   s.moat_risk, s.is_enabler,
                   s.minority_risk, s.expropriation_risk, s.delisting_risk, s.sanctions_risk, s.liquidity_risk,
-                  s.breed, s.pricing_pressure, s.nd_ebitda,
+                  s.breed, s.pricing_pressure, s.nd_ebitda, s.renovation_node,
                   f.needs_review
            FROM issuers i
            LEFT JOIN market_data m ON m.secid = i.secid
@@ -224,6 +226,14 @@ def evaluate_issuer(db: sqlite3.Connection, secid: str, macro_frag: dict | None 
     # тектоника двигает g медленно; щедрый множитель задвоил бы то, что рынок уже знает).
     tect = tectonic.tectonic_g(r["sector"], currency_profile, year=date.today().year, secid=r["secid"])
     g_eff = g_base + tect.sector_delta
+    # УЗЕЛ РЕНОВАЦИИ (книга Гл.16): поставщик оборудования замены Триады Жильё-ЖКХ-Электро
+    # (кабель/трубы/металл/цемент) продаёт в детерминированный многолетний спрос. СКРОМНАЯ надбавка к g,
+    # растущая с неизбежностью реновации к концу горизонта. НЕ операторам (тариф — бенефициар на бумаге).
+    reno_delta = 0.0
+    if r["renovation_node"]:
+        reno_prob = breakthrough.renovation_window(date.today().year, n)["prob_pct"] / 100.0
+        reno_delta = RENOVATION_G_MAX * reno_prob
+        g_eff += reno_delta
     macro_delta = macro_hurdle_delta(macro_frag["F"], qmark, currency_profile)
     # ЕДИНАЯ премия за риск (Саша 23.06.2026): порог сигнала И ставка дисконта r кормятся ОДНОЙ
     # `risk_premium` (= премия над безриском). hurdle_real ≈ премия (реальный безриск ≈0 при КС≈инфл).
@@ -395,6 +405,12 @@ def evaluate_issuer(db: sqlite3.Connection, secid: str, macro_frag: dict | None 
             f"ЦЕНОПРЕССИНГ (§0.3, 3-й канал изъятия, уровень {r['pricing_pressure']}/2): соц-базовое благо → "
             f"государство политически прижимает цену (еда/ЖКХ/ЖНВЛП) → бьёт по МАРЖЕ. Мета-правило: чем "
             f"социально-базовее продукт, тем враждебнее форма. Доходность минора = остаток после изъятия.")
+    if r["renovation_node"]:
+        warnings.append(
+            f"УЗЕЛ РЕНОВАЦИИ (книга Гл.16): поставщик оборудования замены Триады Жильё-ЖКХ-Электро "
+            f"(детерминированный многолетний спрос пересборки выбывающей советской базы). g +{reno_delta*100:.1f}пп "
+            f"(растёт с неизбежностью реновации к горизонту). NB: спрос реален, но РЕАЛИЗАЦИЯ = триаж (фискальные "
+            f"ножницы) + конкуренция поставщиков → надбавка намеренно скромна. Операторы (тариф) — НЕ узел.")
     if (r["moat_risk"] or 0) >= 1:
         warnings.append(
             f"Уязвимость рва к дизрупции (§4/§9, уровень {r['moat_risk']}/2): технология — фактор РИСКА "
@@ -549,6 +565,8 @@ def evaluate_issuer(db: sqlite3.Connection, secid: str, macro_frag: dict | None 
             "moat_risk": r["moat_risk"] or 0, "is_enabler": bool(r["is_enabler"]),
             "breed": r["breed"], "breed_ru": BREED_RU.get(r["breed"]),     # v6 §0.4 порода
             "nd_ebitda": r["nd_ebitda"], "preseizure": preseizure,         # книга Гл.7 профиль предперехвата
+            "renovation_node": bool(r["renovation_node"]),                 # книга Гл.16 узел реновации Триады
+            "reno_delta": reno_delta,                                      # надбавка к g за спрос замены
             "rent_channels": {                                             # v6 §0.3 три канала изъятия
                 "pricing": r["pricing_pressure"] or 0,                     # ценопрессинг → маржа
                 "dilution": r["minority_risk"] or 0,                       # размытие → доля

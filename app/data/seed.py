@@ -43,6 +43,9 @@ TOP = [
     ("MDMG", "Мать и Дитя",    "Медицина",   0.064, 0.18, 0.95, 1.0),
     ("HEAD", "Хэдхантер",      "IT",         0.130, 0.15, 0.89, 0.0),
     ("MGNT", "Магнит",         "Ритейл",     0.100, 0.04, 1.00, 1.0),
+    # узел РЕНОВАЦИИ Триады (книга Гл.16): девелопмент + стройматериалы (цемент/кирпич/щебень).
+    # ⚠ Финданные — ОСТОРОЖНАЯ ОЦЕНКА (не из Excel), Саша уточняет в карточке. div_yield перезапишется живым с MOEX.
+    ("LSRG", "ЛСР",            "Девелопмент", 0.060, 0.04, 1.00, 1.0),
 ]
 
 # детальные структурные баллы: secid → (moat,disruption,tam,regulation,demo,gosnaves,note)
@@ -61,6 +64,10 @@ STRUCT = {
 # класс B из базы знаний эмитентов: путь монетизации доказан / платформенный критерий
 MONETIZATION_PROVEN = {"OZON", "T", "X5", "SBER", "MDMG"}
 PLATFORM = {"OZON"}   # ядро loss-leader, монетизирует экосистема (§3)
+# узел РЕНОВАЦИИ Триады Жильё-ЖКХ-Электро (книга Гл.16): поставщики оборудования/материалов замены
+# (кабель/трубы/металлоконструкции/цемент) — детерм. многолетний спрос. НЕ операторы (тариф). На MOEX
+# узел почти не представлен (Инкаб не котируется, трубы только OCTG-ТМК) → пока единственный чистый — ЛСР.
+RENOVATION_NODE = {"LSRG"}
 # §4/§9: уязвимость рва к ИИ/дизрупции (0/1/2) — фактор РИСКА, не в g
 MOAT_RISK = {"HEAD": 2}   # ИИ убивает white-collar-рекрутинг (ров под прямой дизрупцией)
 ENABLER = set()           # чистых рельс (полупроводники/облако/ЦОД) в текущей вселенной нет
@@ -87,6 +94,9 @@ FIN = {
                  roic=0.05, wacc=0.18, body_trend=-1, is_rentier=1, is_resource=1, etype="кризис"),
     "TATN": dict(net_profit=200, equity=900, roe=0.22, payout=0.80, revenue_growth=0.0,
                  roic=0.20, wacc=0.18, body_trend=0, is_rentier=1, is_resource=1, etype="зрелый"),
+    # ⚠ ОЦЕНКА (не Excel) — консервативно, Саша уточняет. ЛСР: девелопер + стройматериалы, плечо.
+    "LSRG": dict(net_profit=28, equity=150, roe=0.15, payout=0.50, revenue_growth=0.05,
+                 roic=0.12, wacc=0.20, body_trend=0, is_rentier=0, is_resource=0, etype="зрелый"),
 }
 
 
@@ -106,6 +116,7 @@ CURRENCY = {
     "X5": "DOMESTIC", "SBER": "DOMESTIC", "T": "DOMESTIC", "OZON": "DOMESTIC", "MDMG": "DOMESTIC",
     "YDEX": "DOMESTIC", "MTSS": "DOMESTIC", "BSPB": "DOMESTIC", "SVCB": "DOMESTIC", "HEAD": "DOMESTIC",
     "PRMD": "DOMESTIC", "OZPH": "DOMESTIC", "MOEX": "DOMESTIC", "VTBR": "DOMESTIC",
+    "LSRG": "DOMESTIC",   # девелопмент/стройматериалы — внутренний рынок
 }
 
 
@@ -142,19 +153,21 @@ def seed_static() -> dict:
             pf = 1 if secid in PLATFORM else 0
             mr = MOAT_RISK.get(secid, 0)
             en = 1 if secid in ENABLER else 0
+            rn = 1 if secid in RENOVATION_NODE else 0   # узел реновации Триады (Гл.16)
             if secid in STRUCT:
                 m, d, t, r, de, go, note = STRUCT[secid]
                 upsert(db, "structural", dict(
                     secid=secid, moat=m, disruption=d, tam=t, regulation=r,
                     demo=de, gosnaves=go, mult_seed=mult, note=note,
                     monetization_proven=mp, is_platform=pf, moat_risk=mr, is_enabler=en,
-                    updated_by="seed", updated_at=now,
+                    renovation_node=rn, updated_by="seed", updated_at=now,
                 ), pk="secid")
             else:
                 upsert(db, "structural", dict(
                     secid=secid, moat=0, disruption=0, tam=0, regulation=0,
                     demo=0, gosnaves=0, mult_seed=mult,
                     monetization_proven=mp, is_platform=pf, moat_risk=mr, is_enabler=en,
+                    renovation_node=rn,
                     note="seed: множитель из ТОП-25, баллы не детализированы",
                     updated_by="seed", updated_at=now,
                 ), pk="secid")

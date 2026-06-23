@@ -238,25 +238,36 @@ def evaluate_issuer(db: sqlite3.Connection, secid: str, macro_frag: dict | None 
             "roic_minus_wacc": c.roic_minus_wacc,
         }
 
-    # зрелая оценка справедливой капы (если есть ROE/equity)
+    # нормальный (терминальный) мультипликатор P/E: база × интеграц. множитель (фин.деизоляция → вверх).
+    # Нужен ДО зрелой оценки (exit-multiple) И для детектора аванса (§1.3).
+    import json as _json_mod
+    from app.core import integration as integ
+    try:
+        _ic = _json_mod.loads(settings.get("integration_json")) if settings.get("integration_json") else None
+    except (ValueError, TypeError):
+        _ic = None
+    _base_pe = settings.get("normal_pe") or valuation.NORMAL_PE
+    _integ = integ.assess(_ic, base_pe=_base_pe)
+    normal_pe_eff = _base_pe * _integ.terminal_pe_mult
+
+    # зрелая оценка справедливой капы (если есть ROE/equity). Гордон применим → Гордон;
+    # на росте (r≈g, «вне зоны») → EXIT-MULTIPLE (red-team #4 — Гордон ломается, не «бумага хуже»).
     mature = None
     if r["roe"] is not None and r["equity"] and r["cap"]:
-        try:
-            mv = valuation.mature_valuation(
-                roe=r["roe"], g=g_base or valuation.sustainable_g(r["roe"], r["payout"] or 0),
-                r=r_req, payout=r["payout"] or 0.0, equity=r["equity"],
-                current_cap=r["cap"] / 1e9, deflator=deflator,
-                hurdle_real=settings["risk_premium"],   # единая премия (слита с hurdle)
-            )
-            mature = {
-                "fair_pb": mv.fair_pb, "fair_cap_bln": mv.fair_cap,
-                "current_pb": mv.current_pb, "verdict": mv.verdict,
-                "implied_nominal": mv.implied_nominal, "implied_real": mv.implied_real,
-                "spread": mv.spread, "confidence": mv.confidence,
-                "needed_drawdown": mv.needed_drawdown,
-            }
-        except ValueError:
-            mature = {"error": "r ≤ g — зона неоцениваема"}
+        mv = valuation.mature_valuation(
+            roe=r["roe"], g=g_base or valuation.sustainable_g(r["roe"], r["payout"] or 0),
+            r=r_req, payout=r["payout"] or 0.0, equity=r["equity"],
+            current_cap=r["cap"] / 1e9, deflator=deflator,
+            hurdle_real=settings["risk_premium"],   # единая премия (слита с hurdle)
+            exit_pe=normal_pe_eff, years=n,          # exit-multiple fallback для растущих
+        )
+        mature = {
+            "fair_pb": mv.fair_pb, "fair_cap_bln": mv.fair_cap, "method": mv.method,
+            "current_pb": mv.current_pb, "verdict": mv.verdict,
+            "implied_nominal": mv.implied_nominal, "implied_real": mv.implied_real,
+            "spread": mv.spread, "confidence": mv.confidence,
+            "needed_drawdown": mv.needed_drawdown,
+        }
 
     # рыночные мультипликаторы: цена, капа, P/E, P/B
     cap_bln = r["cap"] / 1e9 if r["cap"] else None
@@ -426,28 +437,13 @@ def evaluate_issuer(db: sqlite3.Connection, secid: str, macro_frag: dict | None 
     if tail_premium >= 0.005:
         warnings.append(f"Премия за обнуляющий риск +{tail_premium*100:.1f}пп к hurdle (градуированно по тяжести, аудит v2 #6).")
 
-    # тест «аванс в цене» (§7): какую прибыль имплицирует капа при нормальном P/E.
-    # Убыток/околоноль или кратное превышение → оптимизм заложен в цену.
-    # D2 интеграция: финансовая деизоляция → терминальный P/E вверх (лечит «вечный геодисконт»)
-    import json as _json_mod
-    from app.core import integration as integ
-    try:
-        _ic = _json_mod.loads(settings.get("integration_json")) if settings.get("integration_json") else None
-    except (ValueError, TypeError):
-        _ic = None
-    _base_pe = settings.get("normal_pe") or valuation.NORMAL_PE
-    _integ = integ.assess(_ic, base_pe=_base_pe)
-    normal_pe_eff = _base_pe * _integ.terminal_pe_mult
-    # v6 §1.3 АПГРЕЙД: делитель аванса = КОМПАНИЙНО-СПЕЦИФИЧНЫЙ justified P/E (качеств. растущей положен
-    # мультипликатор >7 → ÷7 ложно метил «авансом» Полюс/Промомед/MDMG). Фикс normal_pe_eff — фоллбэк
-    # (нет payout / зона r≈g). Кламп [4,20]: низ = потолок P/E под hurdle (§1.1), верх — от взрыва при r→g.
-    avans_pe, avans_src = normal_pe_eff, "фикс"
-    if r["payout"] and g_eff < r_req:
-        try:
-            avans_pe = max(4.0, min(20.0, valuation.justified_pe(r["payout"], g_eff, r_req)))
-            avans_src = "justified"
-        except (ValueError, ZeroDivisionError):
-            avans_pe, avans_src = normal_pe_eff, "фикс"
+    # тест «аванс в цене» (§7): какую прибыль имплицирует капа при справедливом P/E.
+    # v6 §1.3 + red-team #4: делитель = КОМПАНИЙНЫЙ справедливый P/E через EXIT-MULTIPLE (рост g лет N →
+    # выход по нормальному normal_pe_eff, дисконт r) — робастно при r≈g (нет сингулярности Гордона,
+    # больше не нужен кламп). Качеств. растущей положен P/E >нормального → ÷фикс ложно метил авансом.
+    avans_pe = max(3.0, valuation.fair_pe_growth(g=g_eff, r=r_req, payout=(r["payout"] or 0.0),
+                                                 exit_pe=normal_pe_eff, years=n))
+    avans_src = "exit-multiple"
     opt = valuation.optimism_priced_in(cap_bln=cap_bln, net_profit_bln=net_profit, normal_pe=avans_pe)
     optimism_flag = bool(opt and opt.flag)
     if opt and opt.flag:

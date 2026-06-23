@@ -126,8 +126,11 @@ function render(x) {
   let mature = "";
   if (x.mature && !x.mature.error) {
     const mt = x.mature;
-    mature = `<div class="panel"><h2>Зрелая оценка (P/B = (ROE−g)/(r−g))</h2><div class="grid">
-      <div>${kv("Справедливый P/B", num(mt.fair_pb))}${kv("Текущий P/B", num(mt.current_pb))}
+    const methStr = mt.method === "exit-multiple"
+      ? `<span title="Гордон (r−g) вне зоны на росте (r≈g, сингулярность) → справедливая цена через exit-multiple: рост g лет, выход по нормальному P/E, дисконт r. Робастно.">exit-multiple ⓘ</span>`
+      : "Гордон (ROE−g)/(r−g)";
+    mature = `<div class="panel"><h2>Зрелая оценка</h2><div class="grid">
+      <div>${kv("Метод", methStr)}${kv("Справедливый P/B", num(mt.fair_pb))}${kv("Текущий P/B", num(mt.current_pb))}
            ${kv("Справедливая капа", num(mt.fair_cap_bln,0)+" млрд")}${kv("Вердикт", mt.verdict)}</div>
       <div>${kv("Implied номинальная", pct(mt.implied_nominal))}${kv("Implied реальная", pct(mt.implied_real))}
            ${kv("Спред r−g", pct(mt.spread)+" ("+mt.confidence+")")}

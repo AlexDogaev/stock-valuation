@@ -103,6 +103,20 @@ def justified_pe(payout: float, g: float, r: float) -> float:
     return payout * (1.0 + g) / (r - g)
 
 
+def fair_pe_growth(*, g: float, r: float, payout: float, exit_pe: float, years: int) -> float:
+    """Справедливый ТЕКУЩИЙ P/E через N-летний рост + ВЫХОД по нормальному мультипликатору (exit-multiple).
+
+    Альтернатива Гордону для РАСТУЩИХ имён (red-team #4 / v6 §1.5): Гордон `D/(r−g)` взрывается при
+    r→g (сингулярность) → растущие имена улетают «вне зоны». Здесь деления на r−g НЕТ → робастно при любом r,g.
+    Прибыль растёт g лет N, на выходе оценивается по exit_pe (нормальный мультипликатор зрелости),
+    всё дисконтируется по r. fair_PE_now = Σ дивы·дисконт + (1+g)^N/(1+r)^N · exit_pe.
+    """
+    x = (1.0 + g) / (1.0 + r)                               # фактор «рост ÷ дисконт» за год
+    n = max(1, int(years))
+    div_pv = payout * (n if abs(x - 1.0) < 1e-9 else x * (1.0 - x ** n) / (1.0 - x))  # PV растущей ренты дивов
+    return div_pv + (x ** n) * exit_pe                      # + PV терминальной стоимости (выход по exit_pe)
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Тест достоверности (зона r − g), SPEC §4.2
 # ─────────────────────────────────────────────────────────────────────────────
@@ -274,6 +288,7 @@ class MatureValuation:
     implied_real: Optional[float] = None
     max_price_cap: Optional[float] = None  # макс цена под hurdle
     needed_drawdown: Optional[float] = None
+    method: str = "Гордон"                 # метод справедливой капы: 'Гордон' | 'exit-multiple'
 
 
 def mature_valuation(
@@ -286,26 +301,49 @@ def mature_valuation(
     current_cap: Optional[float] = None,
     deflator: Optional[float] = None,
     hurdle_real: Optional[float] = None,
+    exit_pe: Optional[float] = None,
+    years: Optional[int] = None,
 ) -> MatureValuation:
     """Зрелая оценка: P/B=(ROE−g)/(r−g), капа = B×P/B (лист «Зрелый режим»).
 
     Если задана current_cap — добавляет вердикт и implied-доходность
     (обратный режим, лист «Под инвестора»). Если задан deflator+hurdle_real —
     считает максимальную цену покупки под hurdle и нужную просадку.
+
+    Если задан exit_pe+years И Гордон НЕприменим (r≈g, «хрупко/вне зоны») — справедливая капа
+    считается по EXIT-MULTIPLE (fair_pe_growth), а не Гордоном (red-team #4: Гордон ломается на росте).
     """
-    fair_pb = justified_pb(roe, g, r)
-    fair_cap = equity * fair_pb
-    fair_pe = justified_pe(payout, g, r)
     spread = r - g
     conf = confidence_zone(r, g)
+    # Гордон (может взорваться/упасть при r≈g — сингулярность)
+    try:
+        fair_pb = justified_pb(roe, g, r)
+        fair_pe = justified_pe(payout, g, r)
+        fair_cap_gordon = equity * fair_pb
+    except ValueError:
+        fair_pb = fair_pe = fair_cap_gordon = None
+    # exit-multiple (робастно при любом r,g): справедливая капа = прибыль(ROE×капитал) × fair_pe_growth
+    fair_cap_exit = fair_pe_exit = None
+    if exit_pe and years:
+        fair_pe_exit = fair_pe_growth(g=g, r=r, payout=payout, exit_pe=exit_pe, years=years)
+        fair_cap_exit = roe * equity * fair_pe_exit
+    # ВЫБОР: Гордон если ПРИМЕНИМ (r−g достаточно), иначе exit-multiple (red-team #4 — Гордон ломается на росте)
+    if conf == "применимо" and fair_cap_gordon is not None:
+        fair_cap, fair_pe_eff, method = fair_cap_gordon, fair_pe, "Гордон"
+    elif fair_cap_exit is not None:
+        fair_cap, fair_pe_eff, method = fair_cap_exit, fair_pe_exit, "exit-multiple"
+    else:
+        fair_cap, fair_pe_eff, method = fair_cap_gordon, fair_pe, "Гордон"
 
     res = MatureValuation(
         roe=roe, g=g, r=r, payout=payout, equity=equity,
-        fair_pb=fair_pb, fair_cap=fair_cap, fair_pe=fair_pe,
-        spread=spread, confidence=conf,
+        fair_pb=fair_pb if fair_pb is not None else 0.0,
+        fair_cap=fair_cap if fair_cap is not None else 0.0,
+        fair_pe=fair_pe_eff if fair_pe_eff is not None else 0.0,
+        spread=spread, confidence=conf, method=method,
     )
 
-    if current_cap is not None:
+    if current_cap is not None and fair_cap:
         res.current_cap = current_cap
         res.current_pb = current_cap / equity
         # вердикт с допуском ±10% (лист «X5 и МиД»)

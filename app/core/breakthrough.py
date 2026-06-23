@@ -18,15 +18,18 @@ from __future__ import annotations
 
 from app.core.tectonic import period_for_year, PERIODS
 
-# pp-факторы по пятилеткам (P1 2026-30 … P4 2041-45), 0..1
+# pp-факторы по пятилеткам (P1 2026-30 … P4 2041-45), 0..1. Окно = ПРОИЗВЕДЕНИЕ (все факторы необходимы).
 FACTORS = {
     "maturation":    {"P1": 0.30, "P2": 0.50, "P3": 0.70, "P4": 0.85},  # исчерпание ренты убирает «купить за нефть»
     "human_capital": {"P1": 0.70, "P2": 0.65, "P3": 0.55, "P4": 0.45},  # инж.школа сохранена, но доедается
     "trigger":       {"P1": 0.20, "P2": 0.30, "P3": 0.45, "P4": 0.55},  # медленный триггер крепнет; острый off
+    "renovation":    {"P1": 0.55, "P2": 0.65, "P3": 0.65, "P4": 0.55},  # реиндустриализация (пред-рывок): активна,
+    #                                                                     пик к завершению замещения, плато у потолка
 }
 LABELS = {"maturation": "созревание (исчерпание ренты)",
           "human_capital": "человеческий капитал (инж.школа)",
-          "trigger": "триггер (медленный — исчерпание)"}
+          "trigger": "триггер (медленный — исчерпание)",
+          "renovation": "реновация (реиндустриализация — пред-рывок: обновление капитала)"}
 
 
 def breakthrough_window(year: int, horizon: int = 1, overrides: dict | None = None) -> dict:
@@ -37,11 +40,18 @@ def breakthrough_window(year: int, horizon: int = 1, overrides: dict | None = No
     f = {k: FACTORS[k][p] for k in FACTORS}
     if overrides:
         f.update({k: v for k, v in overrides.items() if k in FACTORS and v is not None})
-    prob = f["maturation"] * f["human_capital"] * f["trigger"]            # мультипликативно
+    prob = 1.0
+    for k in FACTORS:                                                     # мультипликативно — все факторы необходимы
+        prob *= f[k]
     pct = round(prob * 100, 1)
-    level = "закрыто" if pct < 10 else ("зреет" if pct < 25 else "открывается")
-    traj = {pp: round(FACTORS["maturation"][pp] * FACTORS["human_capital"][pp] * FACTORS["trigger"][pp] * 100, 1)
-            for pp in PERIODS}
+    level = "закрыто" if pct < 8 else ("зреет" if pct < 18 else "открывается")   # пороги под 4 фактора
+
+    def _traj(pp):
+        v = 1.0
+        for k in FACTORS:
+            v *= FACTORS[k][pp]
+        return round(v * 100, 1)
+    traj = {pp: _traj(pp) for pp in PERIODS}
     note = ("Окно ЗАКРЫТО: рента ещё кормит, острый триггер не включён — полный рывок маловероятен. "
             "Зреет к 2035-40 (исчерпание ренты), но чел.капитал доедается → даже на пике не распахивается. "
             "Пред-рывок (замещение) имеет ПОТОЛОК внутр. рынка; бенефициары полного рывка минору ~недоступны."

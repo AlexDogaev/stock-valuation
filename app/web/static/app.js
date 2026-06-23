@@ -287,7 +287,9 @@ function renderRenovation(b) {
   const host = document.getElementById("renovation-marker");
   if (!host) return;
   if (!b) { host.innerHTML = ""; return; }
-  const cls = b.level === "принуждена" ? "buy" : (b.level === "нарастает" ? "edge" : "muted");
+  // не зелёный даже на «принуждена»: тема неизбежна, но минору достаётся ТОЛЬКО через поставщиков
+  // (операторы — бенефициар на бумаге, тариф). Янтарный = «структурный спрос, но узкий узел».
+  const cls = b.level === "латентна" ? "muted" : "edge";
   const rows = Object.keys(b.factors || {}).map(k =>
     `<div class="nwf-row"><span class="nwf-k">${b.labels[k]}</span><span class="nwf-v">${Math.round(b.factors[k]*100)}%</span></div>`).join("");
   const traj = Object.entries(b.trajectory || {}).map(([p, v]) => `${p} ${v}%`).join(" · ");

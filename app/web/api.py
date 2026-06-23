@@ -86,7 +86,8 @@ def macro_outlook():
     from datetime import date
     with get_db() as db:
         out = mo.build_outlook(db).as_dict()
-    out["breakthrough"] = bt.breakthrough_window(date.today().year)   # книга Гл.14: окно мобилизац. перехода
+        h = get_settings(db).get("forecast_years") or 1
+    out["breakthrough"] = bt.breakthrough_window(date.today().year, h)   # книга Гл.14: окно К КОНЦУ горизонта
     return out
 
 

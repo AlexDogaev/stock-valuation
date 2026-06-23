@@ -29,9 +29,11 @@ LABELS = {"maturation": "созревание (исчерпание ренты)"
           "trigger": "триггер (медленный — исчерпание)"}
 
 
-def breakthrough_window(year: int, overrides: dict | None = None) -> dict:
-    """Окно рывка на текущую пятилетку + траектория. overrides (Opus/ручное) — доли 0..1 по факторам."""
-    p = period_for_year(year)
+def breakthrough_window(year: int, horizon: int = 1, overrides: dict | None = None) -> dict:
+    """Окно рывка К КОНЦУ ГОРИЗОНТА (год+горизонт → пятилетка): окно ЗРЕЕТ во времени, поэтому
+    на 20л показываем зрелое окно (~P4), а не текущее. overrides (Opus/ручное) — доли 0..1 по факторам."""
+    target_year = year + max(0, int(horizon) - 1)         # к концу горизонта (год+H−1, чтобы H=1 → текущий)
+    p = period_for_year(target_year)
     f = {k: FACTORS[k][p] for k in FACTORS}
     if overrides:
         f.update({k: v for k, v in overrides.items() if k in FACTORS and v is not None})
@@ -40,11 +42,12 @@ def breakthrough_window(year: int, overrides: dict | None = None) -> dict:
     level = "закрыто" if pct < 10 else ("зреет" if pct < 25 else "открывается")
     traj = {pp: round(FACTORS["maturation"][pp] * FACTORS["human_capital"][pp] * FACTORS["trigger"][pp] * 100, 1)
             for pp in PERIODS}
-    note = ("Окно ЗАКРЫТО: рента ещё кормит, острый триггер не включён — полный рывок маловероятен сейчас. "
+    note = ("Окно ЗАКРЫТО: рента ещё кормит, острый триггер не включён — полный рывок маловероятен. "
             "Зреет к 2035-40 (исчерпание ренты), но чел.капитал доедается → даже на пике не распахивается. "
             "Пред-рывок (замещение) имеет ПОТОЛОК внутр. рынка; бенефициары полного рывка минору ~недоступны."
             if level == "закрыто" else
             "Окно ЗРЕЕТ: исчерпание ренты крепит триггер. Но ловушка внешнего рынка (Запад закрыт, Китай "
             "самодостаточен) + доедание инж.школы держат рывок в «возможно, но трудно». Пред-рывок ≠ рывок.")
-    return {"period": p, "prob_pct": pct, "level": level, "factors": f, "labels": LABELS,
+    return {"period": p, "target_year": target_year, "horizon": int(horizon),
+            "prob_pct": pct, "level": level, "factors": f, "labels": LABELS,
             "trajectory": traj, "note": note}

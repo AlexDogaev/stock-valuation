@@ -263,11 +263,12 @@ function renderBreakthrough(b) {
   const rows = Object.keys(b.factors || {}).map(k =>
     `<div class="nwf-row"><span class="nwf-k">${b.labels[k]}</span><span class="nwf-v">${Math.round(b.factors[k]*100)}%</span></div>`).join("");
   const traj = Object.entries(b.trajectory || {}).map(([p, v]) => `${p} ${v}%`).join(" · ");
-  host.innerHTML = `<button class="nwf-btn nwf-${cls}" id="bt-btn" title="Окно мобилизационного перехода (рывка), книга Гл.14: ${b.level}">
-      <span class="dot"></span> 🚀 Рывок · ${b.prob_pct}% <span class="muted" style="font-weight:400">/${b.level}</span></button>
+  const H = b.horizon || 1;
+  host.innerHTML = `<button class="nwf-btn nwf-${cls}" id="bt-btn" title="Окно рывка (книга Гл.14) К КОНЦУ горизонта ${H}л (год ${b.target_year}, ${b.period}): ${b.level}. Окно зреет во времени.">
+      <span class="dot"></span> 🚀 Рывок · ${b.prob_pct}% <span class="muted" style="font-weight:400">/${H}л ${b.level}</span></button>
     <div class="nwf-pop" id="bt-pop" hidden>
-      <div class="nwf-pop-head nwf-${cls}">Окно рывка · ${b.prob_pct}% (${b.level}) <span class="muted" style="font-weight:400">· ${b.period}</span></div>
-      <div class="nwf-alloc">созревание × чел.капитал × триггер (мультипликативно: низкий любой → закрыто)</div>
+      <div class="nwf-pop-head nwf-${cls}">Окно рывка · ${b.prob_pct}% (${b.level}) <span class="muted" style="font-weight:400">· к ${b.target_year} (${b.period})</span></div>
+      <div class="nwf-alloc">созревание × чел.капитал × триггер (мультипликативно: низкий любой → закрыто); окно ЗРЕЁТ во времени → на длинном горизонте выше</div>
       <div class="nwf-rows">${rows}</div>
       <div class="nwf-alloc">траектория по пятилеткам: ${traj}</div>
       <p class="nwf-note">${b.note}</p>

@@ -235,9 +235,10 @@ def update_tail_risk(secid: str, body: TailRiskIn):
 
 
 class FormIn(BaseModel):
-    """v6 §0.3/0.4: порода происхождения + ценопрессинг (3-й канал изъятия). Суждение, как баллы."""
+    """v6 §0.3/0.4 + книга Гл.7: порода + ценопрессинг (3-й канал) + Долг/EBITDA (профиль предперехвата). Суждение."""
     breed: str | None = None       # privatization|state|oligarch|venture|debt|None
     pricing_pressure: int = 0      # 0 нет / 1 повышенный / 2 острый
+    nd_ebitda: float | None = None # Долг/EBITDA — частная порода × высокий долг → предперехват
 
 
 @router.put("/issuers/{secid}/form")

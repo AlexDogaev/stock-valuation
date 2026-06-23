@@ -85,6 +85,35 @@ def _build_sector_tectonic() -> dict[str, dict[str, float]]:
 
 SECTOR_TECTONIC = _build_sector_tectonic()
 
+# ── ЭНЕРГОПЕРЕХОД / ИСЧЕРПАНИЕ РЕНТЫ (книга Гл.8/11) — ГЛОБАЛЬНЫЙ структурный сдвиг g по сырью. ──
+# Применяется И К ЭКСПОРТЁРАМ (это демография их собственного — сырьевого — рынка, в отличие от
+# РФ-демографии спроса). pp-профиль по пятилеткам: нефтегаз сжимается (пик нефти+исчерпание),
+# золото/цветмет-электрификации растут («двойной выживальщик» / спрос энергоперехода).
+ENERGY_TRANSITION = {
+    "Нефтегаз":    {"P1": -0.5, "P2": -1.0, "P3": -1.5, "P4": -2.0},  # дойка на проедании (пик спроса на нефть)
+    "Инфраструк.": {"P1": -0.3, "P2": -0.6, "P3": -0.9, "P4": -1.2},  # нефтетранспорт привязан к нефти (Транснефть)
+    "Золото":      {"P1": 0.8, "P2": 0.9, "P3": 1.0, "P4": 1.0},      # двойной выживальщик: экспорт+девал-хедж+вне перехода
+    "Удобрения":   {"P1": -0.3, "P2": -0.3, "P3": -0.3, "P4": -0.3},  # агро выживает, но враждебная форма (пошлины+ценопрессинг)
+    "Энергетика":  {"P1": 0.3, "P2": 0.5, "P3": 0.7, "P4": 0.8},      # рост энергопотребления (электрификация); ценопрессинг — отдельно
+}
+ET_METAL_ELECTRIFICATION = {"GMKN", "RUAL", "ENPG"}   # медь/никель/алюминий — спрос мировой электрификации
+ET_METAL_PROFILE = {"P1": 0.6, "P2": 0.9, "P3": 1.2, "P4": 1.5}       # растущий ветер энергоперехода
+ET_METAL_NEUTRAL = {"ALRS": {"P1": -0.3, "P2": -0.3, "P3": -0.3, "P4": -0.3}}  # алмазы — luxury, не электрификация
+
+
+def energy_transition_delta(sector: str | None, secid: str | None, period: str) -> float:
+    """Сдвиг g от энергоперехода/исчерпания ренты (книга Гл.11). Доля. Применяется и к экспортёрам."""
+    sid = (secid or "").upper()
+    if sector == "Металл":
+        if sid in ET_METAL_ELECTRIFICATION:
+            return ET_METAL_PROFILE[period] / 100.0
+        if sid in ET_METAL_NEUTRAL:
+            return ET_METAL_NEUTRAL[sid][period] / 100.0
+        return 0.0          # чёрная металлургия/сталь/титан — нейтрально (не электрификация)
+    prof = ENERGY_TRANSITION.get(sector or "")
+    return prof[period] / 100.0 if prof else 0.0
+
+
 CORRIDOR_LO, CORRIDOR_HI = -0.015, 0.03   # §7 коридор множителя −1.5…+3пп (намеренно скромен)
 
 
@@ -114,19 +143,25 @@ def tectonic_g(sector: str | None, currency_profile: str, *, year: int,
     """Тектоническая поправка к g эмитента: сектор (или под-сегмент) × пятилетка, маршрут по валюте."""
     period = period_for_year(year)
     gmb = G_MARKET_BASE.get(period, 0.01)
-    # §5.3/§7: РФ-тектоника спроса — только DOMESTIC. EXPORTER — по глобальному рынку (не здесь).
+    # ЭНЕРГОПЕРЕХОД / исчерпание ренты (книга Гл.8/11) — глобальный сырьевой сдвиг, применяется И к экспортёрам.
+    et = energy_transition_delta(sector, secid, period)
+    et_txt = (f"; энергопереход {et*100:+.1f}пп (сырьевой сдвиг Гл.11)" if abs(et) >= 0.0005 else "")
+    # §5.3/§7: РФ-тектоника СПРОСА — только DOMESTIC. EXPORTER — спрос по глобальному рынку (демографию не зачитываем),
+    # НО сырьевой структурный сдвиг (энергопереход) — это и есть демография его рынка → учитываем.
     if currency_profile == "EXPORTER":
-        return TectonicResult(period, gmb, 0.0, False, None,
-                              "экспортёр: спрос по ГЛОБАЛЬНОЙ тектонике своего рынка, РФ-демография в выручку не идёт")
+        delta = max(CORRIDOR_LO, min(CORRIDOR_HI, et))
+        note = ("экспортёр: РФ-демография спроса не идёт" + (et_txt or " — сырьевой сдвиг нейтрален"))
+        return TectonicResult(period, gmb, delta, abs(et) >= 0.0005, None, note)
     eff_sector = ISSUER_SUBSECTOR.get((secid or "").upper(), sector or "")  # под-сегмент ниже сектора
     profile = SECTOR_TECTONIC.get(eff_sector, {})
-    raw = profile.get(period, 0.0) / 100.0          # пп → доля
+    raw = profile.get(period, 0.0) / 100.0 + et     # демография спроса + энергопереход
     delta = max(CORRIDOR_LO, min(CORRIDOR_HI, raw))
-    if not profile:
+    if not profile and abs(et) < 0.0005:
         note = "сектор без тектонического профиля — нейтрально (вектор не детализирован)"
     else:
-        pk = _peak_period(profile)
+        pk = _peak_period(profile) if profile else None
         arrow = "попутный" if delta > 0 else ("встречный" if delta < 0 else "нейтральный")
-        note = (f"тектоника {arrow} {delta*100:+.1f}пп ({period}); пик ветра {pk} "
-                f"(оценка по сектору × пятилетке, число — калиброванная гипотеза)")
-    return TectonicResult(period, gmb, delta, True, _peak_period(profile), note)
+        note = (f"тектоника {arrow} {delta*100:+.1f}пп ({period})"
+                + (f"; пик ветра {pk}" if pk else "") + et_txt
+                + " (оценка по сектору × пятилетке, число — калиброванная гипотеза)")
+    return TectonicResult(period, gmb, delta, True, _peak_period(profile) if profile else None, note)

@@ -25,9 +25,13 @@ def test_mdmg_subsector_ascending():
     assert p1 < tectonic_g("Медицина", "DOMESTIC", year=2027).sector_delta
 
 
-def test_exporter_routed_zero():
-    r = tectonic_g("Нефтегаз", "EXPORTER", year=2027)
-    assert r.routed is False and r.sector_delta == 0.0
+def test_exporter_demography_not_routed_but_energy_transition_applies():
+    # Экспортёр: РФ-демография СПРОСА не применяется, НО сырьевой сдвиг (энергопереход, книга Гл.11) — да.
+    assert tectonic_g("Нефтегаз", "EXPORTER", year=2027).sector_delta < 0   # нефтегаз сжимается
+    assert tectonic_g("Золото", "EXPORTER", year=2027, secid="PLZL").sector_delta > 0  # золото — двойной выживальщик
+    # нейтральное сырьё (сталь) + экспортёр → демография не зачитана, энергоперехода нет → 0
+    r3 = tectonic_g("Металл", "EXPORTER", year=2027, secid="NLMK")
+    assert r3.sector_delta == 0.0 and r3.routed is False
 
 
 def test_child_headwind_acute_clamped():

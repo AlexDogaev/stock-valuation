@@ -120,6 +120,10 @@ BREED_RISK = {
 }
 BREED_RU = {"privatization": "приватизация", "state": "госсозданная", "oligarch": "олигархат-90х",
             "venture": "венчур/IPO", "debt": "долговое плечо"}
+# v6/книга Гл.7 ПРОФИЛЬ ПРЕДПЕРЕХВАТА: закредитованный ЧАСТНЫЙ бизнес без господдержки = предсказуемая
+# жертва (долг = фин.хрупкость + рычаг перехвата, часто госкредитором). Композит: частная порода × высокий долг.
+PRESEIZURE_BREEDS = {"debt", "oligarch", "venture"}   # частные, не госзащищённые (state/privatization-рента — иначе)
+PRESEIZURE_ND_EBITDA = 3.0                            # порог закредитованности Долг/EBITDA
 
 
 def macro_hurdle_delta(F: float, qmark: str, currency_profile: str = "MIXED") -> float:
@@ -144,7 +148,7 @@ def evaluate_issuer(db: sqlite3.Connection, secid: str, macro_frag: dict | None 
                   s.mult_seed, s.note AS struct_note, s.monetization_proven, s.is_platform,
                   s.moat_risk, s.is_enabler,
                   s.minority_risk, s.expropriation_risk, s.delisting_risk, s.sanctions_risk, s.liquidity_risk,
-                  s.breed, s.pricing_pressure,
+                  s.breed, s.pricing_pressure, s.nd_ebitda,
                   f.needs_review
            FROM issuers i
            LEFT JOIN market_data m ON m.secid = i.secid
@@ -204,10 +208,14 @@ def evaluate_issuer(db: sqlite3.Connection, secid: str, macro_frag: dict | None 
     if macro_frag is None:
         macro_frag = macro_fragility(db)
     currency_profile = r["currency_profile"] or "MIXED"
+    # ПРОФИЛЬ ПРЕДПЕРЕХВАТА (книга Гл.7): частная порода × высокий долг → предсказуемая жертва →
+    # поднимаем экспроприацию минимум до «повышенного» (cap-гейт). Инертно, пока Долг/EBITDA не задан.
+    preseizure = ((r["breed"] in PRESEIZURE_BREEDS) and (r["nd_ebitda"] or 0) >= PRESEIZURE_ND_EBITDA)
+    expr_eff = max(r["expropriation_risk"] or 0, 1 if preseizure else 0)
     # ОБНУЛЯЮЩИЕ РФ-РИСКИ (red-team #5): гейт сигнала + ГРАДУИРОВАННАЯ премия к hurdle (аудит v2 #6 —
     # повышенный-но-не-острый риск требует больше премии, не только бинарный гейт). Считаем ДО сигнала.
     trisk = tail_risk.assess_tail_risk(
-        minority=r["minority_risk"] or 0, expropriation=r["expropriation_risk"] or 0,
+        minority=r["minority_risk"] or 0, expropriation=expr_eff,
         delisting=r["delisting_risk"] or 0, sanctions=r["sanctions_risk"] or 0,
         liquidity=r["liquidity_risk"] or 0)
     tail_premium = min(TAIL_PREMIUM_CAP, sum(trisk.flags.values()) * TAIL_PREMIUM_PP)
@@ -376,6 +384,12 @@ def evaluate_issuer(db: sqlite3.Connection, secid: str, macro_frag: dict | None 
             f"top-down, per-эмитентный demo-балл должен быть РЕЗИДУАЛЬНЫМ (открытая калибровка §13).")
     if r["breed"] and r["breed"] in BREED_RISK:
         warnings.append(f"Порода (§0.4): {BREED_RISK[r['breed']]}")
+    if preseizure:
+        warnings.append(
+            f"ПРОФИЛЬ ПРЕДПЕРЕХВАТА (книга Гл.7): частная порода ({BREED_RU.get(r['breed'])}) + высокий долг "
+            f"(Долг/EBITDA {r['nd_ebitda']:.1f} ≥ {PRESEIZURE_ND_EBITDA:.0f}) → двойная уязвимость (фин.хрупкость + "
+            f"долг-рычаг перехвата, часто госкредитором; «первородный грех» эпохи = юр.рычаг). Экспроприация поднята "
+            f"до повышенной. Идеальный объект перехвата в нужный момент.")
     if (r["pricing_pressure"] or 0) >= 1:
         warnings.append(
             f"ЦЕНОПРЕССИНГ (§0.3, 3-й канал изъятия, уровень {r['pricing_pressure']}/2): соц-базовое благо → "
@@ -534,6 +548,7 @@ def evaluate_issuer(db: sqlite3.Connection, secid: str, macro_frag: dict | None 
             "is_platform": bool(r["is_platform"]),
             "moat_risk": r["moat_risk"] or 0, "is_enabler": bool(r["is_enabler"]),
             "breed": r["breed"], "breed_ru": BREED_RU.get(r["breed"]),     # v6 §0.4 порода
+            "nd_ebitda": r["nd_ebitda"], "preseizure": preseizure,         # книга Гл.7 профиль предперехвата
             "rent_channels": {                                             # v6 §0.3 три канала изъятия
                 "pricing": r["pricing_pressure"] or 0,                     # ценопрессинг → маржа
                 "dilution": r["minority_risk"] or 0,                       # размытие → доля

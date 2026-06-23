@@ -126,7 +126,7 @@ async function initHeaderControls() {
     const s = await getJSON("/settings");
     regimeSel.value = s.regime;
     if (feltInp) feltInp.value = (s.felt_inflation * 100).toFixed(1);
-    if (targetInp) targetInp.value = (s.hurdle * 100).toFixed(1);
+    if (targetInp) targetInp.value = (s.risk_premium * 100).toFixed(1);   // единая премия за риск
     if (ksInp && s.key_rate_eff != null) {       // действующая КС (override или ЦБ SOAP)
       ksInp.value = (s.key_rate_eff * 100).toFixed(2);
       ksInp.title = `Ключевая ставка. ЦБ SOAP: ${s.key_rate_fetched != null ? (s.key_rate_fetched * 100).toFixed(2) + "%" : "—"}. Ручной override — для объявленной до публикации в SOAP.`;
@@ -151,7 +151,7 @@ async function initHeaderControls() {
     location.reload();
   };
   if (feltInp) feltInp.addEventListener("change", () => saveNum(feltInp, "felt_inflation"));
-  if (targetInp) targetInp.addEventListener("change", () => saveNum(targetInp, "hurdle"));
+  if (targetInp) targetInp.addEventListener("change", () => saveNum(targetInp, "risk_premium"));
   if (ksInp) ksInp.addEventListener("change", () => saveNum(ksInp, "key_rate_override"));
   if (termInp) termInp.addEventListener("change", () => saveNum(termInp, "inflation_terminal_override"));
   if (horizonSel) horizonSel.addEventListener("change", async () => {

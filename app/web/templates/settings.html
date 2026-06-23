@@ -19,18 +19,17 @@
   textarea#rate-signal:focus { outline: 0; border-color: var(--ink); }
 </style>
 <h1>Настройки и персональная калибровка</h1>
-<p class="sub">Доходность реальна только над ОЩУЩАЕМОЙ инфляцией. Таргет и режим задают порог троичного сигнала.
-  Инфляцию и таргет можно править прямо в шапке.</p>
+<p class="sub">Доходность реальна только над ОЩУЩАЕМОЙ инфляцией. ЕДИНАЯ премия за риск (над безриском) задаёт И порог
+  троичного сигнала, И премию в ставке дисконта r. Инфляцию и премию можно править прямо в шапке.</p>
 
-<div class="panel"><h2>Таргет и инфляция</h2><div class="grid">
+<div class="panel"><h2>Премия за риск и инфляция</h2><div class="grid">
   <div>
     <label>Ощущаемая инфляция сейчас (год 1), %</label><input type="number" step="0.1" id="felt_inflation">
     <label>Терминальная инфляция (куда сойдёт при снижении КС), %</label><input type="number" step="0.1" id="inflation_terminal">
-    <label>Таргет — желаемая реальная доходность над инфляцией, %</label><input type="number" step="0.5" id="hurdle">
+    <label>Премия за риск над безриском (ЕДИНАЯ: порог сигнала + ставка дисконта r), %</label><input type="number" step="0.5" id="risk_premium">
   </div>
   <div>
     <label>Буфер маржи безопасности (±, доля)</label><input type="number" step="0.005" id="buffer">
-    <label>Премия за риск эквити (для r, доля)</label><input type="number" step="0.01" id="risk_premium">
     <label>Ставка НДФЛ, % (13 база / 15 выше порога)</label><input type="number" step="1" id="tax_rate">
     <label style="display:block;margin-top:6px"><input type="checkbox" id="tax_aware"> сигнал и сравнение с таргетом — посленалогово</label>
     <label style="display:block"><input type="checkbox" id="iis3"> обёртка ИИС-3 (курсовой рост освобождён; дивы облагаются)</label>
@@ -41,8 +40,8 @@
     <span class="tcalc-t">Калькулятор таргета</span>
     цель портфеля <input class="num2" type="number" step="0.5" id="tc-port">% ÷ доля атаки
     <input class="num2" type="number" step="5" id="tc-attack">% →
-    hurdle атаки <span id="tc-out">—</span>
-    <button class="ghost" id="tc-apply" type="button">Применить → таргет</button>
+    премия атаки <span id="tc-out">—</span>
+    <button class="ghost" id="tc-apply" type="button">Применить → премия</button>
     <span class="tcalc-note">Защита ≈ 0% реальных → вся доходность с атаки. Уйдёшь в защиту (доля атаки ↓) — планка растёт сама = меньше аппетит.</span>
   </div>
 </div>
@@ -72,8 +71,8 @@
 {% endblock %}
 {% block scripts %}
 <script>
-const PCT = ["felt_inflation", "inflation_terminal", "hurdle", "tax_rate"];   // хранятся долей, в полях — проценты
-const FRAC = ["buffer", "risk_premium"];
+const PCT = ["felt_inflation", "inflation_terminal", "risk_premium", "tax_rate"];   // хранятся долей, в полях — проценты
+const FRAC = ["buffer"];
 const CHK = ["tax_aware", "iis3"];   // 0/1
 async function load() {
   const s = await getJSON("/settings");
@@ -119,7 +118,7 @@ tcAttack.addEventListener("input", tcCalc);
 document.getElementById("tc-apply").addEventListener("click", () => {
   const h = tcCalc();
   if (h == null) return;
-  document.getElementById("hurdle").value = h.toFixed(1);
+  document.getElementById("risk_premium").value = h.toFixed(1);
   document.getElementById("save").click();
 });
 

@@ -206,7 +206,10 @@ def evaluate_issuer(db: sqlite3.Connection, secid: str, macro_frag: dict | None 
     tect = tectonic.tectonic_g(r["sector"], currency_profile, year=date.today().year, secid=r["secid"])
     g_eff = g_base + tect.sector_delta
     macro_delta = macro_hurdle_delta(macro_frag["F"], qmark, currency_profile)
-    hurdle_eff = settings["hurdle"] + macro_delta + tail_premium
+    # ЕДИНАЯ премия за риск (Саша 23.06.2026): порог сигнала И ставка дисконта r кормятся ОДНОЙ
+    # `risk_premium` (= премия над безриском). hurdle_real ≈ премия (реальный безриск ≈0 при КС≈инфл).
+    # Прежний отдельный `hurdle` слит в risk_premium — не могут разъехаться.
+    hurdle_eff = settings["risk_premium"] + macro_delta + tail_premium
 
     # требуемая доходность r (для теста достоверности зоны)
     asset_premium = 0.05 if (r["etype"] or "").startswith("раст") else 0.0
@@ -243,7 +246,7 @@ def evaluate_issuer(db: sqlite3.Connection, secid: str, macro_frag: dict | None 
                 roe=r["roe"], g=g_base or valuation.sustainable_g(r["roe"], r["payout"] or 0),
                 r=r_req, payout=r["payout"] or 0.0, equity=r["equity"],
                 current_cap=r["cap"] / 1e9, deflator=deflator,
-                hurdle_real=settings["hurdle"],
+                hurdle_real=settings["risk_premium"],   # единая премия (слита с hurdle)
             )
             mature = {
                 "fair_pb": mv.fair_pb, "fair_cap_bln": mv.fair_cap,

@@ -83,6 +83,11 @@ def build_page(request: Request):
     return _page(request, "build.html", title="Что купить")
 
 
+@app.get("/compare", response_class=HTMLResponse)
+def compare_page(request: Request):
+    return _page(request, "compare.html", title="Сравнение классов")
+
+
 @app.get("/settings", response_class=HTMLResponse)
 def settings_page(request: Request):
     return _page(request, "settings.html", title="Настройки")

@@ -38,6 +38,46 @@ def list_fx():
         return engine.screen_fx(db)
 
 
+@router.get("/compare")
+def compare_classes():
+    """ЕДИНЫЙ экран сравнения классов (v6 / red-team #7): акции + облигации + замещайки на ОДНОЙ
+    линейке — годовая РЕАЛЬНАЯ доходность (над дефлятором, с учётом шока) + общий троичный сигнал."""
+    from app.core import macro_outlook as mo
+    with get_db() as db:
+        s = get_settings(db)
+        n = s.get("forecast_years") or engine.FORECAST_YEARS
+        outlook = mo.build_outlook(db, n)
+        defl = outlook.e_inflation(n)
+        items = []
+        for x in engine.screen_all(db):                       # АКЦИИ (real_return = шок-скорр., посленалогово)
+            if x.get("real_return") is None:
+                continue
+            note = (x.get("quality_label") or "")
+            if x.get("group_ab"):
+                note += f" · гр.{x['group_ab']}"
+            if (x.get("tail_risk") or {}).get("gate"):
+                note += " · ⚠обнул.риск"
+            items.append({"name": x["name"], "secid": x["secid"], "klass": "Акция",
+                          "real": x["real_return"], "signal": x["signal"], "note": note.strip(" ·")})
+        for b in engine.screen_bonds(db).get("bonds", []):    # ОБЛИГАЦИИ (shock_adj_yield = реал−риск−шок)
+            if b.get("shock_adj_yield") is None:
+                continue
+            note = f"{b['type']}·{b['coupon_type']}"
+            if b.get("pd"):
+                note += f" · PD {b['pd']*100:.0f}%"
+            items.append({"name": b["name"], "secid": b["secid"], "klass": "Облигация",
+                          "real": b["shock_adj_yield"], "signal": b["signal"], "note": note})
+        for f in engine.screen_fx(db).get("bonds", []):       # ЗАМЕЩАЙКИ (FX-YTM + E[курс] − дефлятор)
+            real = (1.0 + f.get("ytm_fx", 0.0) + f.get("e_fx_move", 0.0)) / (1.0 + defl) - 1.0
+            items.append({"name": f["name"], "secid": f["secid"], "klass": "Замещайка",
+                          "real": round(real, 4), "signal": f["signal"], "note": f.get("faceunit", "FX")})
+        items.sort(key=lambda z: -z["real"])
+    return {"items": items, "deflator": round(defl, 4), "hurdle": s["risk_premium"],
+            "horizon": n, "p_shock_cum": round(outlook.cumulative_shock_p(n), 4),
+            "buy": sum(1 for z in items if z["signal"] == "ПОКУПАЙ"), "count": len(items),
+            "disclaimer": DISCLAIMER}
+
+
 @router.get("/outlook")
 def macro_outlook():
     """Верхний слой: макро-прогноз на горизонт = инфляция (база) + риск шока (вектор)."""

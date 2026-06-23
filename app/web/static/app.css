@@ -119,6 +119,7 @@ small.note { color: var(--muted); }
 .nwf-btn.nwf-buy   { color: var(--buy);   border-color: rgba(76,212,130,.5);  background: rgba(76,212,130,.13); }
 .nwf-btn.nwf-edge  { color: var(--edge);  border-color: rgba(240,198,63,.5);  background: rgba(240,198,63,.13); }
 .nwf-btn.nwf-avoid { color: var(--avoid); border-color: rgba(242,107,78,.55); background: rgba(242,107,78,.15); }
+.nwf-btn.nwf-muted { color: var(--muted); border-color: var(--hair); background: rgba(139,144,153,.10); }
 .nwf-pop {
   position: absolute; top: calc(100% + 9px); right: 0; z-index: 30; min-width: 320px;
   background: #14181e; border: 1px solid var(--hair); padding: 14px 16px 16px;
@@ -128,6 +129,7 @@ small.note { color: var(--muted); }
 .nwf-pop-head.nwf-buy { color: var(--buy); }
 .nwf-pop-head.nwf-edge { color: var(--edge); }
 .nwf-pop-head.nwf-avoid { color: var(--avoid); }
+.nwf-pop-head.nwf-muted { color: var(--muted); }
 .nwf-row { display: flex; justify-content: space-between; align-items: center; gap: 18px; padding: 8px 0; border-bottom: 1px solid var(--hair); font-size: 13.5px; }
 .nwf-k { color: var(--muted); }
 .nwf-v { font-family: var(--mono); display: inline-flex; align-items: center; gap: 8px; white-space: nowrap; }

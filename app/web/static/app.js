@@ -250,7 +250,34 @@ async function initNwfMarker() {
 
   try { r.outlook = await getJSON("/outlook"); } catch (e) { /* движок недоступен → старый Opus */ }
   renderShock(r);             // форвардный риск ШОКА (headline — из движка hazard)
+  renderBreakthrough(r.outlook && r.outlook.breakthrough);   // окно РЫВКА (книга Гл.14)
   renderRateTrajectory(r);    // траектория ключевой ставки (Opus по пейсу + риторике)
+}
+
+// ── маркер «Окно Рывка» (книга Гл.14): созревание × чел.капитал × триггер, мультипликативно ──
+function renderBreakthrough(b) {
+  const host = document.getElementById("breakthrough-marker");
+  if (!host) return;
+  if (!b) { host.innerHTML = ""; return; }
+  const cls = b.level === "открывается" ? "buy" : (b.level === "зреет" ? "edge" : "muted");
+  const rows = Object.keys(b.factors || {}).map(k =>
+    `<div class="nwf-row"><span class="nwf-k">${b.labels[k]}</span><span class="nwf-v">${Math.round(b.factors[k]*100)}%</span></div>`).join("");
+  const traj = Object.entries(b.trajectory || {}).map(([p, v]) => `${p} ${v}%`).join(" · ");
+  host.innerHTML = `<button class="nwf-btn nwf-${cls}" id="bt-btn" title="Окно мобилизационного перехода (рывка), книга Гл.14: ${b.level}">
+      <span class="dot"></span> 🚀 Рывок · ${b.prob_pct}% <span class="muted" style="font-weight:400">/${b.level}</span></button>
+    <div class="nwf-pop" id="bt-pop" hidden>
+      <div class="nwf-pop-head nwf-${cls}">Окно рывка · ${b.prob_pct}% (${b.level}) <span class="muted" style="font-weight:400">· ${b.period}</span></div>
+      <div class="nwf-alloc">созревание × чел.капитал × триггер (мультипликативно: низкий любой → закрыто)</div>
+      <div class="nwf-rows">${rows}</div>
+      <div class="nwf-alloc">траектория по пятилеткам: ${traj}</div>
+      <p class="nwf-note">${b.note}</p>
+      <p class="shock-disc">⚠ Калиброванная гипотеза (книга Гл.14): полный рывок (фронтир/экспорт высокого передела) ≠ пред-рывок (замещение известного). Бенефициары полного рывка минору ~недоступны; пред-рывок имеет потолок внутр. рынка.</p>
+    </div>`;
+  const btn = document.getElementById("bt-btn"), pop = document.getElementById("bt-pop");
+  if (btn && pop) {
+    btn.addEventListener("click", (e) => { e.stopPropagation(); pop.hidden = !pop.hidden; });
+    document.addEventListener("click", (e) => { if (!host.contains(e.target)) pop.hidden = true; });
+  }
 }
 
 // ── кнопка «Риск ШОКа»: форвардная вероятность (субъективная оценка Opus) ──

@@ -80,10 +80,14 @@ def compare_classes():
 
 @router.get("/outlook")
 def macro_outlook():
-    """Верхний слой: макро-прогноз на горизонт = инфляция (база) + риск шока (вектор)."""
+    """Верхний слой: макро-прогноз на горизонт = инфляция (база) + риск шока (вектор) + окно рывка."""
     from app.core import macro_outlook as mo
+    from app.core import breakthrough as bt
+    from datetime import date
     with get_db() as db:
-        return mo.build_outlook(db).as_dict()
+        out = mo.build_outlook(db).as_dict()
+    out["breakthrough"] = bt.breakthrough_window(date.today().year)   # книга Гл.14: окно мобилизац. перехода
+    return out
 
 
 @router.get("/build_portfolio")

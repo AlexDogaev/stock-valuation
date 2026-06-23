@@ -250,7 +250,8 @@ async function initNwfMarker() {
 
   try { r.outlook = await getJSON("/outlook"); } catch (e) { /* движок недоступен → старый Opus */ }
   renderShock(r);             // форвардный риск ШОКА (headline — из движка hazard)
-  renderBreakthrough(r.outlook && r.outlook.breakthrough);   // окно РЫВКА (книга Гл.14)
+  renderBreakthrough(r.outlook && r.outlook.breakthrough);   // фронтирный рывок (книга Гл.14)
+  renderRenovation(r.outlook && r.outlook.renovation);       // Реновация Триады Жильё-ЖКХ-Электро (Гл.15-17)
   renderRateTrajectory(r);    // траектория ключевой ставки (Opus по пейсу + риторике)
 }
 
@@ -275,6 +276,33 @@ function renderBreakthrough(b) {
       <p class="shock-disc">⚠ Калиброванная гипотеза (книга Гл.14): полный рывок (фронтир/экспорт высокого передела) ≠ пред-рывок (замещение известного). Бенефициары полного рывка минору ~недоступны; пред-рывок имеет потолок внутр. рынка.</p>
     </div>`;
   const btn = document.getElementById("bt-btn"), pop = document.getElementById("bt-pop");
+  if (btn && pop) {
+    btn.addEventListener("click", (e) => { e.stopPropagation(); pop.hidden = !pop.hidden; });
+    document.addEventListener("click", (e) => { if (!host.contains(e.target)) pop.hidden = true; });
+  }
+}
+
+// ── маркер «Реновация Триады» (Гл.15-17): мобилизационно-инфраструктурный рывок, неизбежность ВЫСОКА ──
+function renderRenovation(b) {
+  const host = document.getElementById("renovation-marker");
+  if (!host) return;
+  if (!b) { host.innerHTML = ""; return; }
+  const cls = b.level === "принуждена" ? "buy" : (b.level === "нарастает" ? "edge" : "muted");
+  const rows = Object.keys(b.factors || {}).map(k =>
+    `<div class="nwf-row"><span class="nwf-k">${b.labels[k]}</span><span class="nwf-v">${Math.round(b.factors[k]*100)}%</span></div>`).join("");
+  const traj = Object.entries(b.trajectory || {}).map(([p, v]) => `${p} ${v}%`).join(" · ");
+  const H = b.horizon || 1;
+  host.innerHTML = `<button class="nwf-btn nwf-${cls}" id="rn-btn" title="Реновация Триады Жильё-ЖКХ-Электро (Гл.15-17) К КОНЦУ горизонта ${H}л (год ${b.target_year}, ${b.period}): ${b.level}. Неизбежность нарастает по мере выбытия советской базы.">
+      <span class="dot"></span> 🏗️ Реновация · ${b.prob_pct}% <span class="muted" style="font-weight:400">/${H}л ${b.level}</span></button>
+    <div class="nwf-pop" id="rn-pop" hidden>
+      <div class="nwf-pop-head nwf-${cls}">Реновация Триады · ${b.prob_pct}% (${b.level}) <span class="muted" style="font-weight:400">· к ${b.target_year} (${b.period})</span></div>
+      <div class="nwf-alloc">Жильё + ЖКХ-сети + энергетика, срок 50-60 лет → выбывает синхронно в 2020-40-х. Россия ПРИНУЖДЕНА (рынок — сама страна, внешний не нужен). Неизбежность = износ × реактивный триггер.</div>
+      <div class="nwf-rows">${rows}<div class="nwf-row"><span class="nwf-k">фискальная способность (↓ → триаж)</span><span class="nwf-v">${b.fiscal_pct}%</span></div></div>
+      <div class="nwf-alloc">траектория неизбежности по пятилеткам: ${traj}</div>
+      <p class="nwf-note">${b.note}</p>
+      <p class="shock-disc">⚠ Калиброванная гипотеза (Гл.15-17). Реализация = ТРИАЖ, не модернизационный бум (фискальные ножницы Гл.16). Реактивно-аварийно. Узел для минора — поставщики оборудования (кабель/трубы/металл/цемент), НЕ операторы (тариф).</p>
+    </div>`;
+  const btn = document.getElementById("rn-btn"), pop = document.getElementById("rn-pop");
   if (btn && pop) {
     btn.addEventListener("click", (e) => { e.stopPropagation(); pop.hidden = !pop.hidden; });
     document.addEventListener("click", (e) => { if (!host.contains(e.target)) pop.hidden = true; });

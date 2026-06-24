@@ -37,5 +37,21 @@ def test_prospective_quality_with_monetization():
     assert qm(roic_years=3, monetization_proven=1) == "PROSPECTIVE_QUALITY"
 
 
-def test_low_payout_not_proven():
-    assert qm(payout=0.10) == "PROSPECTIVE_NO_QUALITY"
+def test_low_payout_is_structural_quality():
+    # доказанная структурная база (устойч.ROIC, не гипер, не дорогой), но payout мал → реинвестирует
+    # → СТРУКТУРНОЕ качество, НЕ «спекулятивное» (кейс PLZL/GMKN: золото-капекс / уник.активы)
+    assert qm(payout=0.10) == "STRUCTURAL_QUALITY"
+    assert qm(payout=0.0) == "STRUCTURAL_QUALITY"
+
+
+def test_structural_needs_proven_core():
+    # без доказанной базы (короткий ROIC) низкий payout → именно спекулятивное, не структурное
+    assert qm(roic_years=3, payout=0.10) == "PROSPECTIVE_NO_QUALITY"
+    assert qm(revenue_growth=0.40, payout=0.10) == "PROSPECTIVE_NO_QUALITY"   # гипер-рост убивает core
+
+
+def test_structural_quality_in_decision_matrix():
+    # новый тир должен быть в матрице решений (иначе KeyError в matrix_action)
+    from app.core.decision import MATRIX, ZONE_CHEAP, ZONE_EDGE, ZONE_EXPENSIVE
+    for z in (ZONE_CHEAP, ZONE_EDGE, ZONE_EXPENSIVE):
+        assert ("STRUCTURAL_QUALITY", z) in MATRIX

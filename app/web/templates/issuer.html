@@ -21,6 +21,7 @@
   #card .vsep { color: var(--faint); }
   #card .vquality { color: var(--muted); }
   #card .vquality.buy { color: var(--q-green); }
+  #card .vquality.struct { color: var(--accent); }
   #card .vquality.edge { color: var(--q-amber); }
   #card .vflag { color: var(--avoid); font-size: 12px; letter-spacing: .04em; }
   /* действие из матрицы качество×цена (§1) — синтез двух слоёв, главный вердикт */
@@ -171,7 +172,8 @@ function render(x) {
   const rationale = (DRAFT && DRAFT.rationale) ? DRAFT.rationale
                    : (s.note || "Обоснование Opus ещё не сгенерировано — нажми «🤖 LLM-черновик» в индикаторах.");
   const qcls = x.quality_marker==='PROVEN_QUALITY' ? 'buy'
-             : (x.quality_marker==='PROSPECTIVE_QUALITY' ? 'edge' : '');
+             : (x.quality_marker==='STRUCTURAL_QUALITY' ? 'struct'
+             : (x.quality_marker==='PROSPECTIVE_QUALITY' ? 'edge' : ''));
   // действие из матрицы §1: цвет — покупка/держать/мимо
   const actCls = /докуп|покупать/.test(x.action||'') ? 'buy'
                : ((x.action==='мимо') ? 'avoid' : 'edge');

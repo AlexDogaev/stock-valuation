@@ -113,7 +113,7 @@ function rowCells(x) {
       <td class="num"${x.forecast.price_upside_base != null ? ` title="база (без шока) ${(x.forecast.price_upside_base * 100).toFixed(0)}% за ${x.forecast.years}г; вычтен драг шок-просадки"` : ""}>${pctSigned(x.forecast.price_upside)}</td>
       <td class="num col-extra">${num(x.structural.multiplier, 2)}</td>
       <td>${sigBadge(x.signal)}</td>
-      <td class="qual-cell" data-secid="${x.secid}" title="Показать обоснование Опуса"><small>${x.quality_marker==='PROVEN_QUALITY'?'<b style="color:var(--buy)">★ доказ.</b>':(x.quality_marker==='PROSPECTIVE_QUALITY'?'<b style="color:var(--edge)">◑ персп.</b>':(x.quality_marker==='PROSPECTIVE_NO_QUALITY'?'○ спекул.':'<span class="muted">◦ обычн.</span>'))}</small><span class="ic">ⓘ</span></td>`;
+      <td class="qual-cell" data-secid="${x.secid}" title="Показать обоснование Опуса"><small>${x.quality_marker==='PROVEN_QUALITY'?'<b style="color:var(--buy)">★ доказ.</b>':(x.quality_marker==='STRUCTURAL_QUALITY'?'<b style="color:var(--accent)">◆ структ.</b>':(x.quality_marker==='PROSPECTIVE_QUALITY'?'<b style="color:var(--edge)">◑ персп.</b>':(x.quality_marker==='PROSPECTIVE_NO_QUALITY'?'○ спекул.':'<span class="muted">◦ обычн.</span>')))}</small><span class="ic">ⓘ</span></td>`;
 }
 
 function rowHtml(x, opt) {

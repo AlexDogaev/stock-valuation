@@ -184,7 +184,10 @@ def build(db, *, horizon: int, equity_cap: float, exp_inflation: float, target_r
     # (промах прибыли/дерейтинг). σ кумул = вола классов · √H. Не заменяет хвост (прыжки в scen),
     # а добавляет ординарный разброс → портфель с акциями НЕ может иметь 0% риска. Φ монотонна →
     # вложенность miss ≥ loss50 ≥ wipeout сохраняется (пороги 0 > −0.5 > −0.9).
-    sigma_annual = sum(h["weight"] * REAL_VOL.get(h["asset"], 0.0) for h in holdings)   # коррелир. (консерв.)
+    # коррелир. сумма (консерв.) — для акций/бондов верно. ЗОЛОТО исключаем: оно АНТИКОРРЕЛИРОВАНО в
+    # кризис (диверсификатор), складывать его волу с риском акций линейно = завышать совместный риск.
+    # Кризисная отдача золота — в gold_hedge (прыжки), не в коррелированной диффузии.
+    sigma_annual = sum(h["weight"] * REAL_VOL.get(h["asset"], 0.0) for h in holdings if h["asset"] != "Золото")
     sigma_cum = sigma_annual * math.sqrt(max(1, horizon))
 
     def _phi(x):

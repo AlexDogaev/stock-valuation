@@ -15,10 +15,10 @@
   .pf-risk .v.bad { color: var(--avoid); } .pf-risk .v.ok { color: var(--buy); } .pf-risk .v.mid { color: var(--edge); }
   .pf-bar { height: 22px; display: flex; border-radius: 0; overflow: hidden; margin: 10px 0 4px; border: 1px solid var(--hair); }
   .pf-bar span { display: block; height: 100%; }
-  .seg-eq { background: var(--buy); } .seg-bond { background: #4a6a8a; } .seg-fx { background: var(--edge); } .seg-cash { background: var(--hair); }
+  .seg-eq { background: var(--buy); } .seg-bond { background: #4a6a8a; } .seg-fx { background: var(--edge); } .seg-gold { background: #d4b24c; } .seg-cash { background: var(--hair); }
   #pf-tbl th, #pf-tbl td { padding: 10px 13px; }
   #pf-tbl td:first-child { font-size: 14px; }
-  .a-eq { color: var(--buy); } .a-bond { color: #7fa8cf; } .a-fx { color: var(--edge); }
+  .a-eq { color: var(--buy); } .a-bond { color: #7fa8cf; } .a-fx { color: var(--edge); } .a-gold { color: #d4b24c; }
   #bld-out.stale { opacity: .3; transition: opacity .15s; pointer-events: none; }
   #bld-stale { color: var(--edge); font-size: 13px; margin: 8px 0 0; }
   #bld-go.stale { background: var(--edge); color: #1a1400; }
@@ -105,10 +105,11 @@ async function loadBuild() {
 
   const wq = r.weights;
   document.getElementById("pf-bar").innerHTML =
-    seg("seg-eq", wq.equity) + seg("seg-bond", wq.bond_total) + seg("seg-fx", wq.fx) + seg("seg-cash", wq.cash);
+    seg("seg-eq", wq.equity) + seg("seg-bond", wq.bond_total) + seg("seg-fx", wq.fx) + seg("seg-gold", wq.gold) + seg("seg-cash", wq.cash);
   document.getElementById("pf-weights").innerHTML =
     `Акции <b>${pct(wq.equity)}</b> · облигации <b>${pct(wq.bond_total)}</b> (корп ${pct(wq.corp)}) · ` +
-    `замещайки <b>${pct(wq.fx)}</b> · кэш/порох <b>${pct(wq.cash)}</b> · ${r.n_equity} акций + ${r.n_bond} бондов + ${r.n_fx} замещаек`;
+    `замещайки <b>${pct(wq.fx)}</b> · золото <b>${pct(wq.gold)}</b> · кэш/порох <b>${pct(wq.cash)}</b> · ` +
+    `${r.n_equity} акций + ${r.n_bond} бондов + ${r.n_fx} замещаек + золотая нога`;
 
   const miss = document.getElementById("pf-miss"); miss.textContent = pct(r.miss_infl_risk);
   miss.className = "v " + (r.miss_infl_risk > 0.40 ? "bad" : r.miss_infl_risk > 0.20 ? "mid" : "ok");
@@ -122,7 +123,7 @@ async function loadBuild() {
     "шока / нормальный / глубокий / L-катастрофа: просадка + всплеск инфл на фикс-номинале − девал-хедж) ПЛЮС " +
     "обычная вола акций (диффузия σ·√срок) — поэтому портфель с акциями не бывает с 0% риска. Длинный срок гасит хвост.";
 
-  const acls = a => a === "Акция" ? "a-eq" : (a === "Замещайка" ? "a-fx" : "a-bond");
+  const acls = a => a === "Акция" ? "a-eq" : (a === "Замещайка" ? "a-fx" : (a === "Золото" ? "a-gold" : "a-bond"));
   document.getElementById("pf-rows").innerHTML = r.holdings.map(hh => `<tr>
     <td>${hh.name}</td>
     <td class="${acls(hh.asset)}">${hh.asset}${hh.subtype ? ` <span class="muted">${hh.subtype}</span>` : ""}</td>

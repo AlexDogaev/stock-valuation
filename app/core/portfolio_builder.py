@@ -22,12 +22,15 @@ AGGRESSIVENESS = {
 }
 NAME_LIMIT = 0.12          # лимит на одно имя (диверсификация)
 FX_SHARE_OF_DEFENSIVE = 0.15   # доля валютного хеджа в защитном рукаве (девал-хедж)
+GOLD_SHARE_OF_DEFENSIVE = 0.15 # золотая нога (книга Гл.11): двойной выживальщик — кризисная конвексити
+GOLD_BASE_REAL = 0.0           # золото без купона — хранилище стоимости (~сохраняет покупат.способность, не доходность)
+GOLD_CRISIS_SPIKE = 0.15       # скачок золота-USD во flight-to-safety в кризис (сверх девальвации рубля)
 DEEP_DD = 0.55            # глубокая (L-образная) просадка акций в тяжёлом шоке
 CORP_SHOCK_LOSS = 0.18   # условная потеря корп-бонда в шоке (всплеск дефолтов/спредов)
 LGD = 0.65
 # клин личная:официальная инфляция — канон в macro_outlook.ROSSTAT_RATIO (линкеры индексируются на офиц.CPI)
 # Годовая вола РЕАЛЬНОЙ доходности по классам (ОБЫЧНАЯ дисперсия = диффузия поверх макро-сценариев-прыжков).
-REAL_VOL = {"Акция": 0.22, "Облигация": 0.06, "Замещайка": 0.12}
+REAL_VOL = {"Акция": 0.22, "Облигация": 0.06, "Замещайка": 0.12, "Золото": 0.15}
 
 
 def _fisher_real(nominal: float, inflation: float) -> float:
@@ -95,7 +98,13 @@ def build(db, *, horizon: int, equity_cap: float, exp_inflation: float, target_r
                    "subtype": f.get("faceunit", "FX"), "real": round(real, 4), "shock_drag": 0.0})  # замещайка — девал-хедж
     fx.sort(key=lambda x: -x["real"])
 
-    # ── АЛЛОКАЦИЯ: атака (акции) до cap, защита = остальное (замещайки-хедж + бонды) ──
+    # ── ЗОЛОТАЯ НОГА (книга Гл.11): двойной выживальщик. Доходность ~0 реал (хранилище стоимости, не
+    # купон), но КРИЗИСНАЯ КОНВЕКСИТИ — в шоке золото-RUB растёт (золото-USD flight-to-safety + девальвация),
+    # гасит хвост портфеля. Класс (RUB-ETF/ОМС: TGLD/SBGD/GOLD), не одно имя → без name_limit. ──
+    gold = {"secid": "GOLD", "name": "Золото (RUB-ETF/ОМС)", "asset": "Золото",
+            "real": round(GOLD_BASE_REAL, 4), "shock_drag": 0.0}
+
+    # ── АЛЛОКАЦИЯ: атака (акции) до cap, защита = остальное (золото-хедж + замещайки-хедж + бонды) ──
     holdings, w = [], 0.0
     for e in eq_candidates:
         if w >= equity_cap - 1e-9:
@@ -113,7 +122,11 @@ def build(db, *, horizon: int, equity_cap: float, exp_inflation: float, target_r
         wt = min(name_limit, fx_target - wf)
         holdings.append({**f, "weight": round(wt, 4)})
         wf += wt
-    bond_target = defensive - wf
+    # золотая нога — класс целиком (не имя), без name_limit
+    wg = round(defensive * GOLD_SHARE_OF_DEFENSIVE, 4)
+    if wg > 1e-9:
+        holdings.append({**gold, "weight": wg})
+    bond_target = defensive - wf - wg
     wb = 0.0
     for b in bonds:
         if wb >= bond_target - 1e-9:
@@ -127,6 +140,7 @@ def build(db, *, horizon: int, equity_cap: float, exp_inflation: float, target_r
     eqw = sum(h["weight"] for h in holdings if h["asset"] == "Акция")
     corpw = sum(h["weight"] for h in holdings if h["asset"] == "Облигация" and h.get("is_corp"))
     fxw = sum(h["weight"] for h in holdings if h["asset"] == "Замещайка")
+    goldw = sum(h["weight"] for h in holdings if h["asset"] == "Золото")
 
     # ── ОЖИДАЕМАЯ РЕАЛЬНАЯ (взвешенная, шок-скорректированная); кэш=0 реал ──
     exp_real = round(sum(h["weight"] * h["real"] for h in holdings), 4)
@@ -139,13 +153,17 @@ def build(db, *, horizon: int, equity_cap: float, exp_inflation: float, target_r
     r_base = exp_real + g_shock                                      # годовая реал БЕЗ шока
     base_cum = (1.0 + r_base) ** horizon - 1.0                      # накопленная реал без шока (обычно > 0)
     fx_hedge = fxw * outlook.shock.fx_pct * 0.5                     # девал-выигрыш замещаек в шоке
+    # золотая нога: выигрыш = девальвация + flight-to-safety скачок золота-USD (сильнее замещайки — двойной хедж)
+    gold_hedge = goldw * (outlook.shock.fx_pct + GOLD_CRISIS_SPIKE) * 0.5
     bond_default = sum(h["weight"] * (h.get("pd_horizon") or 0.0) * LGD
                        for h in holdings if h["asset"] == "Облигация")   # перм.дефолты бондов за срок
     # перманентные просадки портфеля (доля стоимости) по тяжести шока:
     eq_perm = abs(outlook.shock.equity_dd) * (1.0 - outlook.shock.recovery_1y)   # норм.шок: акции с V-отскоком
-    central_dd = max(0.0, eqw * eq_perm + corpw * CORP_SHOCK_LOSS - fx_hedge)
-    deep_dd    = max(0.0, eqw * DEEP_DD + corpw * CORP_SHOCK_LOSS - fx_hedge)
-    cat_dd     = min(1.0, eqw * 0.90 + corpw * 0.50 + bond_default)              # L: акции −90% без отскока + дефолты
+    central_dd = max(0.0, eqw * eq_perm + corpw * CORP_SHOCK_LOSS - fx_hedge - gold_hedge)
+    deep_dd    = max(0.0, eqw * DEEP_DD + corpw * CORP_SHOCK_LOSS - fx_hedge - gold_hedge)
+    # L: акции −90% без отскока + дефолты. Золото — лучший кат-хедж, но частичный кредит (в системном
+    # коллапсе риск доступа/контрагента ETF/ОМС); замещайки в кат не кредитуем (консервативно).
+    cat_dd     = min(1.0, max(0.0, eqw * 0.90 + corpw * 0.50 + bond_default - gold_hedge * 0.5))
     # всплеск инфляции в шоке бьёт ФИКС-НОМИНАЛ (купон фиксирован; линкер/флоат защищены), кумул. за окно:
     fixed_nom_w = sum(h["weight"] for h in holdings
                       if h["asset"] == "Облигация" and h.get("coupon_type") == "Фикс") + cash
@@ -187,6 +205,7 @@ def build(db, *, horizon: int, equity_cap: float, exp_inflation: float, target_r
                    "target_real": round(target_real, 4)},
         "p_shock_cum": round(p_shock, 4),
         "weights": {"equity": round(eqw, 4), "corp": round(corpw, 4), "fx": round(fxw, 4),
+                    "gold": round(goldw, 4),
                     "bond_total": round(sum(h["weight"] for h in holdings if h["asset"] == "Облигация"), 4),
                     "cash": cash},
         "exp_real": exp_real, "target_real": round(target_real, 4), "meets_target": meets_target,
@@ -196,4 +215,5 @@ def build(db, *, horizon: int, equity_cap: float, exp_inflation: float, target_r
         "n_equity": len([h for h in holdings if h["asset"] == "Акция"]),
         "n_bond": len([h for h in holdings if h["asset"] == "Облигация"]),
         "n_fx": len([h for h in holdings if h["asset"] == "Замещайка"]),
+        "n_gold": len([h for h in holdings if h["asset"] == "Золото"]),
     }

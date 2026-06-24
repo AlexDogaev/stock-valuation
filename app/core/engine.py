@@ -111,6 +111,10 @@ TAIL_PREMIUM_PP = 0.012     # +1.2пп к hurdle за каждый балл об
 TAIL_PREMIUM_CAP = 0.05     # потолок премии (выше — гейт всё равно снимет сигнал)
 WAIT_PREMIUM = 0.05         # v6 §1.5 ЗАМОК: forward-история (группа Б) → ПОКУПАЙ только с ДИСКОНТОМ
 RENOVATION_G_MAX = 0.010    # узел реновации (Гл.16): потолок надбавки к g за детерм. многолетний спрос замены
+# Инфляционный перенос: дефлятор включает шок-инфляцию (E[инфл]), но номинальный g её не отражает.
+# Имена с ценовой властью перекладывают инфляцию в номинал → кредитуем g на перенос × шок-инфляцию.
+# Перенос = обратная функция ценопрессинга: 0 (свободно репрайсят) → 0.8; 2 (тариф) → 0 (ест инфляцию).
+PASSTHROUGH_BY_PRICING = {0: 0.8, 1: 0.4, 2: 0.0}
                             # (реал ≥ hurdle + премия за ожидание), иначе нет смысла vs безриск ОФЗ
 # v6 §0.4 ПОРОДА происхождения → предсказывает ГЛАВНЫЙ риск (на MOEX нет органического роста из малого).
 BREED_RISK = {
@@ -234,6 +238,12 @@ def evaluate_issuer(db: sqlite3.Connection, secid: str, macro_frag: dict | None 
         reno_prob = breakthrough.renovation_window(date.today().year, n)["prob_pct"] / 100.0
         reno_delta = RENOVATION_G_MAX * reno_prob
         g_eff += reno_delta
+    # ИНФЛЯЦИОННЫЙ ПЕРЕНОС (асимметрия дефлятора): дефлятор содержит шок-инфляцию (E[инфл]), но номинальный
+    # g её не отражает. Имена с ценовой властью перекладывают инфляцию в номинал → кредитуем g на
+    # перенос × шок-инфляцию. Ценопрессинг (тариф) → перенос 0 → ест инфляцию полностью (как фикс-номинал).
+    passthrough = PASSTHROUGH_BY_PRICING.get(r["pricing_pressure"] or 0, 0.0)
+    infl_passthrough = passthrough * outlook.shock_inflation_addon()
+    g_eff += infl_passthrough
     macro_delta = macro_hurdle_delta(macro_frag["F"], qmark, currency_profile)
     # ЕДИНАЯ премия за риск (Саша 23.06.2026): порог сигнала И ставка дисконта r кормятся ОДНОЙ
     # `risk_premium` (= премия над безриском). hurdle_real ≈ премия (реальный безриск ≈0 при КС≈инфл).
@@ -411,6 +421,12 @@ def evaluate_issuer(db: sqlite3.Connection, secid: str, macro_frag: dict | None 
             f"(детерминированный многолетний спрос пересборки выбывающей советской базы). g +{reno_delta*100:.1f}пп "
             f"(растёт с неизбежностью реновации к горизонту). NB: спрос реален, но РЕАЛИЗАЦИЯ = триаж (фискальные "
             f"ножницы) + конкуренция поставщиков → надбавка намеренно скромна. Операторы (тариф) — НЕ узел.")
+    if infl_passthrough >= 0.005:
+        warnings.append(
+            f"ИНФЛЯЦИОННЫЙ ПЕРЕНОС: дефлятор включает E[шок-инфляцию] +{outlook.shock_inflation_addon()*100:.1f}пп, "
+            f"но имя с ценовой властью (ценопрессинг {r['pricing_pressure'] or 0}/2) перекладывает её в номинал → "
+            f"g +{infl_passthrough*100:.1f}пп (перенос {int(passthrough*100)}%). Устраняет асимметрию «инфляция в "
+            f"знаменателе есть, в числителе нет». Тарифным именам (ценопрессинг) перенос НЕ даётся — едят инфляцию.")
     if (r["moat_risk"] or 0) >= 1:
         warnings.append(
             f"Уязвимость рва к дизрупции (§4/§9, уровень {r['moat_risk']}/2): технология — фактор РИСКА "
@@ -567,6 +583,7 @@ def evaluate_issuer(db: sqlite3.Connection, secid: str, macro_frag: dict | None 
             "nd_ebitda": r["nd_ebitda"], "preseizure": preseizure,         # книга Гл.7 профиль предперехвата
             "renovation_node": bool(r["renovation_node"]),                 # книга Гл.16 узел реновации Триады
             "reno_delta": reno_delta,                                      # надбавка к g за спрос замены
+            "infl_passthrough": infl_passthrough,                          # кредит g за перенос шок-инфляции (ценовая власть)
             "rent_channels": {                                             # v6 §0.3 три канала изъятия
                 "pricing": r["pricing_pressure"] or 0,                     # ценопрессинг → маржа
                 "dilution": r["minority_risk"] or 0,                       # размытие → доля

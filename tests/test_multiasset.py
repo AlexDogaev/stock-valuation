@@ -103,6 +103,17 @@ def test_outlook_shock_lifts_inflation_steadystate():
     assert o.base_inflation(1) > o.base_inflation(10)
 
 
+def test_shock_inflation_addon_and_passthrough_inverse_pricing():
+    from app.core.engine import PASSTHROUGH_BY_PRICING
+    o = _outlook()
+    addon = o.shock_inflation_addon()
+    assert abs(addon - (o.e_inflation(5) - o.base_inflation(5))) < 1e-9   # addon = E[инфл] над глайдом
+    assert addon > 0                                                      # шок поднимает E[инфл]
+    # перенос инфляции в номинал убывает с ценопрессингом: свободный репрайс → полный, тариф → ноль
+    assert PASSTHROUGH_BY_PRICING[0] > PASSTHROUGH_BY_PRICING[1] > PASSTHROUGH_BY_PRICING[2]
+    assert PASSTHROUGH_BY_PRICING[2] == 0.0           # тарифное имя ест шок-инфляцию полностью (как фикс-номинал)
+
+
 def test_outlook_fx_scenarios_tree():
     o = _outlook()
     sc = o.fx_scenarios()

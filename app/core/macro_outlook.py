@@ -68,8 +68,14 @@ class MacroOutlook:
         остаётся срочно-зависимой: короткая бумага видит высокую ТЕКУЩУЮ инфляцию, длинная — терминал.
         """
         M = maturity if maturity else self.horizon_years
+        return self.base_inflation(M) + self.shock_inflation_addon()
+
+    def shock_inflation_addon(self) -> float:
+        """Вклад шок-инфляции в E[инфл] СВЕРХ базового глайда (M-независим). Для inflation-passthrough
+        имён (ценовая власть) частично компенсируется ростом номинала — см. engine: перенос по ценопрессингу.
+        Для фикс-номинала (облигации, тарифные имена) переноса нет → инфляция бьёт в лоб."""
         elevated = min(1.0, self.shock.p * self.norm_years)   # доля лет с шок-инфляцией (стационарно)
-        return self.base_inflation(M) + self.shock.infl_pp * elevated
+        return self.shock.infl_pp * elevated
 
     def fx_scenarios(self) -> list[tuple[float, float]]:
         """Курс-сценарии для FX (заменяют хардкод): база (дрейф ≈ инфл.дифференциал) + ветка шока."""

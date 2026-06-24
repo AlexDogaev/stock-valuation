@@ -114,6 +114,17 @@ def test_shock_inflation_addon_and_passthrough_inverse_pricing():
     assert PASSTHROUGH_BY_PRICING[2] == 0.0           # тарифное имя ест шок-инфляцию полностью (как фикс-номинал)
 
 
+def test_quality_recovery_lowers_shock_drag():
+    from app.core.engine import QUALITY_RECOVERY
+    o = _outlook()
+    base = o.equity_shock_drag(5)
+    proven = o.equity_shock_drag(5, recovery=QUALITY_RECOVERY["PROVEN_QUALITY"])
+    prospective = o.equity_shock_drag(5, recovery=QUALITY_RECOVERY["PROSPECTIVE_QUALITY"])
+    assert proven < prospective < base                       # выживший отыгрывает больше → перманента/драга меньше
+    assert QUALITY_RECOVERY["PROVEN_QUALITY"] > QUALITY_RECOVERY["PROSPECTIVE_QUALITY"] > o.shock.recovery_1y
+    assert QUALITY_RECOVERY["PROVEN_QUALITY"] < 1.0          # НЕ полное восстановление — часть потерь реальна (2022)
+
+
 def test_outlook_fx_scenarios_tree():
     o = _outlook()
     sc = o.fx_scenarios()

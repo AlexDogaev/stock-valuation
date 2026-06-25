@@ -57,10 +57,10 @@ def build(db, *, horizon: int, equity_cap: float, exp_inflation: float, target_r
             continue
         if x["quality_marker"] == "ordinary" or (x.get("tail_risk") or {}).get("gate") == "block":
             continue
-        nominal = x["calc"]["full_nominal"]                # годовая номинальная полная (с дивами)
-        # реал над выбр.инфл − шок-драг − ДЕ-РЕЙТИНГ ПЫЛЕСОСА (иначе расходится со скринером: тот режет мультипликатор)
-        real = (_fisher_real(nominal, exp_inflation) - (x.get("shock_drag") or 0.0)
-                - (x.get("forecast", {}).get("pe_reversion_drag") or 0.0))
+        # реал = eff_real ДВИЖКА напрямую (а не пересчёт из full_nominal): гарантированно согласовано со
+        # скринером — там уже де-рейтинг пылесоса + шок + налог + дефлятор e_inflation. Иначе билдер дефлировал
+        # по своей exp_inflation и пропускал де-рейтинг → акции ложно привлекательны (кейс Полюс +3.5% vs ПРОДАВАЙ).
+        real = x.get("real_return") or 0.0
         eq_candidates.append({
             "secid": x["secid"], "name": x["name"], "asset": "Акция",
             "real": round(real, 4), "shock_drag": round(x.get("shock_drag") or 0.0, 4),

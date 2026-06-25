@@ -109,11 +109,14 @@ def macro_outlook():
 
 @router.get("/build_portfolio")
 def build_portfolio(horizon: int = 5, aggressiveness: str = "Сбалансированный",
-                    inflation: float = 0.08, target: float = 0.05):
+                    inflation: float | None = None, target: float = 0.05):
     """Блок «Что купить»: портфель купил-держи под горизонт/агрессивность/инфляцию/таргет + риски."""
     from app.core import portfolio_builder as pb
     cap = pb.AGGRESSIVENESS.get(aggressiveness, 0.50)
     with get_db() as db:
+        if inflation is None:   # дефолт = дефлятор движка e_inflation (как у скринера), НЕ хардкод 0.08
+            from app.core import macro_outlook as mo
+            inflation = mo.build_outlook(db, horizon).e_inflation(horizon)
         res = pb.build(db, horizon=horizon, equity_cap=cap, exp_inflation=inflation, target_real=target)
     res["aggressiveness"] = aggressiveness
     res["aggressiveness_options"] = list(pb.AGGRESSIVENESS.keys())

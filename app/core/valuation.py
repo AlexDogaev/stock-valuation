@@ -119,6 +119,8 @@ def fair_pe_growth(*, g: float, r: float, payout: float, exit_pe: float, years: 
 
 EQ_PE_FLOOR = 0.04   # пол спреда (r−g): иначе равновесный P/E → ∞ при r≈g (растущие)
 EQ_PE_CAP = 30.0     # потолок (санити для exit-multiple)
+MATURE_PAYOUT = 0.5  # нормализованный payout ЗРЕЛОГО состояния (спек §3 грид «payout~50%»). Равновесный
+                     # P/E = зрелый мультипликатор, НЕ функция текущего payout (растущая платит 0 сейчас → не 0 навсегда)
 
 
 def equilibrium_pe(*, payout: float, ofz_nominal: float, premium: float, e_inflation: float,

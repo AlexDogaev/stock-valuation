@@ -294,7 +294,7 @@ def evaluate_issuer(db: sqlite3.Connection, secid: str, macro_frag: dict | None 
     # fiscal_drain=0 в фазе 1 (дисконт пылесоса добавит §2/фаза 3). Интеграция (деизоляция→P/E) сохранена множителем.
     _ofz_nominal = effective_key_rate(db) or 0.145
     _eq_pe = valuation.equilibrium_pe(
-        payout=r["payout"] or 0.0, ofz_nominal=_ofz_nominal, premium=settings["risk_premium"],
+        payout=valuation.MATURE_PAYOUT, ofz_nominal=_ofz_nominal, premium=settings["risk_premium"],
         e_inflation=deflator, g_nominal=g_eff, passthrough=passthrough, fiscal_drain=0.0)
     normal_pe_eff = _eq_pe * _integ.terminal_pe_mult
 

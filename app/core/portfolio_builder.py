@@ -52,12 +52,15 @@ def build(db, *, horizon: int, equity_cap: float, exp_inflation: float, target_r
     eq_candidates = []
     for row in db.execute("SELECT secid FROM issuers").fetchall():
         x = engine.evaluate_issuer(db, row["secid"], macro_frag=macro_frag)
-        if not x or x["signal"] == "ВОЗДЕРЖИСЬ":
+        # в портфель берём только активные покупки: НЕ ВОЗДЕРЖИСЬ и НЕ ПРОДАВАЙ (пылесос — §4 фиск.доминирование)
+        if not x or x["signal"] in ("ВОЗДЕРЖИСЬ", "ПРОДАВАЙ"):
             continue
         if x["quality_marker"] == "ordinary" or (x.get("tail_risk") or {}).get("gate") == "block":
             continue
         nominal = x["calc"]["full_nominal"]                # годовая номинальная полная (с дивами)
-        real = _fisher_real(nominal, exp_inflation) - (x.get("shock_drag") or 0.0)   # реал над выбр.инфл − шок-драг
+        # реал над выбр.инфл − шок-драг − ДЕ-РЕЙТИНГ ПЫЛЕСОСА (иначе расходится со скринером: тот режет мультипликатор)
+        real = (_fisher_real(nominal, exp_inflation) - (x.get("shock_drag") or 0.0)
+                - (x.get("forecast", {}).get("pe_reversion_drag") or 0.0))
         eq_candidates.append({
             "secid": x["secid"], "name": x["name"], "asset": "Акция",
             "real": round(real, 4), "shock_drag": round(x.get("shock_drag") or 0.0, 4),

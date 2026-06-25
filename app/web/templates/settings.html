@@ -61,6 +61,18 @@
   </div>
 </div>
 
+<div class="panel" style="margin-top:18px"><h2>🏦 Фискальный пылесос (§2 — дисконт акций)</h2>
+  <p class="sub">Дефицит выгребает пул сбережений в ОФЗ → акциям нет бида → мультипликаторы сжимаются (де-рейтинг).
+    Высокий пылесос = рынок акций мёртв тотально. Оживёт ТОЛЬКО при снижении дефицита. Ввод Минфина (как ФНБ).</p>
+  <div class="grid">
+    <label>Дефицит-прогноз / run-rate, трлн ₽/год</label><input type="number" step="0.5" id="fiscal_deficit_trln">
+    <label>Плановый дефицит года, трлн ₽</label><input type="number" step="0.1" id="fiscal_plan_trln">
+    <label>Номинальный ВВП, трлн ₽</label><input type="number" step="5" id="gdp_trln">
+  </div>
+  <div id="fiscal-out" class="sub" style="margin-top:10px"></div>
+  <button id="fiscal-save">Сохранить пылесос</button> <span id="fiscal-saved" class="muted" style="margin-left:10px"></span>
+</div>
+
 <div class="panel" style="margin-top:18px"><h2>Фундаментал уровня 2 — T-Invest API</h2>
   <p class="sub">Обновить ROE, прибыль, payout, капитал по эмитентам из T-Invest
     (GetAssetFundamentals). Нужен токен: env <code>TINVEST_TOKEN</code> или файл
@@ -160,6 +172,31 @@ document.getElementById("refresh-funds").addEventListener("click", async (e) => 
   } catch (err) { st.textContent = "Ошибка: " + err.message; }
   finally { e.target.disabled = false; }
 });
+function fiscalOut(f) {
+  const lvlcol = f.level === "высокий" ? "var(--avoid)" : (f.level === "повышенный" ? "var(--edge)" : "var(--buy)");
+  document.getElementById("fiscal-out").innerHTML =
+    `Пылесос: <b style="color:${lvlcol}">${f.level}</b> · дисконт к равновесному P/E <b>${(f.drain_pp*100).toFixed(1)}пп</b> ` +
+    `· интенсивность ${(f.intensity*100).toFixed(0)}% · дефицит ${(f.deficit_pct_gdp*100).toFixed(1)}% ВВП. ` +
+    `Снизишь дефицит → пылесос мягче → равновесный P/E выше → меньше де-рейтинга → акции оживают.`;
+}
+async function loadFiscal() {
+  const f = await getJSON("/macro/fiscal");
+  document.getElementById("fiscal_deficit_trln").value = f.fiscal_deficit_trln;
+  document.getElementById("fiscal_plan_trln").value = f.fiscal_plan_trln;
+  document.getElementById("gdp_trln").value = f.gdp_trln;
+  fiscalOut(f);
+}
+document.getElementById("fiscal-save").addEventListener("click", async () => {
+  const body = {
+    fiscal_deficit_trln: parseFloat(document.getElementById("fiscal_deficit_trln").value),
+    fiscal_plan_trln: parseFloat(document.getElementById("fiscal_plan_trln").value),
+    gdp_trln: parseFloat(document.getElementById("gdp_trln").value),
+  };
+  const f = await sendJSON("/macro/fiscal", "PUT", body);
+  fiscalOut(f);
+  document.getElementById("fiscal-saved").textContent = "Сохранено ✓ (скринер пересчитается)";
+});
+loadFiscal();
 load();
 </script>
 {% endblock %}

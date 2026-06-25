@@ -10,7 +10,7 @@ from pydantic import BaseModel
 from app.config import DISCLAIMER
 from app.core import engine, barbell, growth, sotp, leverage, body_trend, backtest
 from app.core import valuation, inflation, portfolio as pf
-from app.data.db import get_db, get_settings, upsert
+from app.data.db import get_db, get_settings, get_macro, upsert
 from app.data.seed import refresh_market, refresh_fundamentals, refresh_macro
 
 router = APIRouter(prefix="/api")
@@ -511,6 +511,39 @@ def telegram_test():
 def put_nwf(body: NwfIn):
     from app.data.minfin import update_nwf
     return update_nwf(**body.model_dump())
+
+
+# ── фискальный пылесос (§2): ручной ввод Минфина → fiscal_drain (дисконт акций) ──
+class FiscalIn(BaseModel):
+    fiscal_deficit_trln: float | None = None   # дефицит-прогноз/run-rate, трлн ₽/год
+    fiscal_plan_trln: float | None = None       # плановый дефицит года, трлн ₽
+    gdp_trln: float | None = None               # номинальный ВВП, трлн ₽
+
+
+def _fiscal_state(m: dict) -> dict:
+    from app.core import fiscal as fmod
+    fd = fmod.fiscal_drain(deficit_trln=m.get("fiscal_deficit_trln") or 7.5,
+                           plan_trln=m.get("fiscal_plan_trln") or 3.786,
+                           gdp_trln=m.get("gdp_trln") or 200.0)
+    return {"fiscal_deficit_trln": m.get("fiscal_deficit_trln"), "fiscal_plan_trln": m.get("fiscal_plan_trln"),
+            "gdp_trln": m.get("gdp_trln"), "drain_pp": fd.drain_pp, "intensity": fd.intensity,
+            "level": fd.level, "deficit_pct_gdp": fd.deficit_pct_gdp, "note": fd.note}
+
+
+@router.get("/macro/fiscal")
+def get_fiscal():
+    with get_db() as db:
+        return _fiscal_state(get_macro(db))
+
+
+@router.put("/macro/fiscal")
+def put_fiscal(body: FiscalIn):
+    patch = {k: v for k, v in body.model_dump().items() if v is not None}
+    with get_db() as db:
+        if patch:
+            cols = ", ".join(f"{k} = ?" for k in patch)
+            db.execute(f"UPDATE macro SET {cols} WHERE id = 1", tuple(patch.values()))
+        return _fiscal_state(get_macro(db))
 
 
 # ── backtest на истории MOEX ─────────────────────────────────────────────────

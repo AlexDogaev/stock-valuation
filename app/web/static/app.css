@@ -66,6 +66,7 @@ td.num { font-family: var(--mono); }
 .sig.buy { color: var(--buy); }
 .sig.edge { color: var(--edge); }
 .sig.avoid { color: var(--avoid); }
+.sig.sell { color: #fff; background: var(--avoid); padding: 1px 7px; border-radius: 4px; }   /* ПРОДАВАЙ — сильнее ВОЗДЕРЖИСЬ */
 
 .pos { color: var(--buy); }
 .neg { color: var(--avoid); }

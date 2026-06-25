@@ -23,6 +23,7 @@ const num = (x, d = 2) => (x === null || x === undefined) ? "—" : Number(x).to
 function sigClass(s) {
   if (s === "ПОКУПАЙ") return "buy";
   if (s === "ГРАНИЦА") return "edge";
+  if (s === "ПРОДАВАЙ") return "sell";
   return "avoid";
 }
 function sigBadge(s) { return `<span class="sig ${sigClass(s)}">${s}</span>`; }

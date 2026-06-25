@@ -125,6 +125,16 @@ def test_quality_recovery_lowers_shock_drag():
     assert QUALITY_RECOVERY["PROVEN_QUALITY"] < 1.0          # НЕ полное восстановление — часть потерь реальна (2022)
 
 
+def test_quaternary_signal_bench_ofz():
+    from app.core.valuation import quaternary_signal
+    # бенч=ОФЗ (фиск.доминирование §4): выше бара→ПОКУПАЙ; бьёт ОФЗ но ниже бара→ВОЗДЕРЖИСЬ; ниже ОФЗ→ПРОДАВАЙ
+    assert quaternary_signal(real=0.10, hurdle=0.08, ofz_real=0.01, buffer=0.01) == "ПОКУПАЙ"
+    assert quaternary_signal(real=0.03, hurdle=0.08, ofz_real=0.01, buffer=0.01) == "ВОЗДЕРЖИСЬ"
+    assert quaternary_signal(real=-0.02, hurdle=0.08, ofz_real=0.01, buffer=0.01) == "ПРОДАВАЙ"
+    # в ШОК-режиме ПРОДАВАЙ снят (добор, не выход)
+    assert quaternary_signal(real=-0.02, hurdle=0.0, ofz_real=0.01, buffer=0.01, regime="ШОК") != "ПРОДАВАЙ"
+
+
 def test_outlook_fx_scenarios_tree():
     o = _outlook()
     sc = o.fx_scenarios()

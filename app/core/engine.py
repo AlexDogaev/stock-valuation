@@ -181,6 +181,10 @@ def evaluate_issuer(db: sqlite3.Connection, secid: str, macro_frag: dict | None 
     from app.core import macro_outlook as mo
     outlook = mo.build_outlook(db, n)
     deflator = outlook.e_inflation(n)
+    # БЕНЧ = ОФЗ (фискальное доминирование §4): безриск, не инфляция. ofz_real = реальный безриск над
+    # дефлятором. Якорь к КС (короткий ОФЗ-прокси). Кормит и бар сигнала (hurdle), и равновесный P/E (§3).
+    _ofz_nominal = effective_key_rate(db) or 0.145
+    ofz_real = _ofz_nominal - deflator
 
     struct_res, mult, detailed = structural_for(r)
 
@@ -251,7 +255,8 @@ def evaluate_issuer(db: sqlite3.Connection, secid: str, macro_frag: dict | None 
     # ЕДИНАЯ премия за риск (Саша 23.06.2026): порог сигнала И ставка дисконта r кормятся ОДНОЙ
     # `risk_premium` (= премия над безриском). hurdle_real ≈ премия (реальный безриск ≈0 при КС≈инфл).
     # Прежний отдельный `hurdle` слит в risk_premium — не могут разъехаться.
-    hurdle_eff = settings["risk_premium"] + macro_delta + tail_premium
+    # БЕНЧ = ОФЗ (§4): бар = ОФЗ_real + премия (раньше премия над безриском≈0; теперь явный ОФЗ-якорь).
+    hurdle_eff = ofz_real + settings["risk_premium"] + macro_delta + tail_premium
 
     # требуемая доходность r (для теста достоверности зоны)
     asset_premium = 0.05 if (r["etype"] or "").startswith("раст") else 0.0
@@ -292,7 +297,6 @@ def evaluate_issuer(db: sqlite3.Connection, secid: str, macro_frag: dict | None 
     _integ = integ.assess(_ic, base_pe=_base_pe)
     # РАВНОВЕСНЫЙ P/E (фискальное доминирование §3, рама A): payout/(r−g), бенч=ОФЗ, НЕ ∝1/инфл.
     # fiscal_drain=0 в фазе 1 (дисконт пылесоса добавит §2/фаза 3). Интеграция (деизоляция→P/E) сохранена множителем.
-    _ofz_nominal = effective_key_rate(db) or 0.145
     _eq_pe = valuation.equilibrium_pe(
         payout=valuation.MATURE_PAYOUT, ofz_nominal=_ofz_nominal, premium=settings["risk_premium"],
         e_inflation=deflator, g_nominal=g_eff, passthrough=passthrough, fiscal_drain=0.0)
@@ -487,8 +491,9 @@ def evaluate_issuer(db: sqlite3.Connection, secid: str, macro_frag: dict | None 
 
     # сигнал — троичный на БАЗОВОЙ реал. (без шок-драга): просадку шока для РЕШЕНИЯ держит F-тилт
     # hurdle (forward-осторожность), драг же уже сидит в ПОКАЗЫВАЕМОЙ eff_real — задваивать нельзя.
-    signal = valuation.ternary_signal(
-        eff_real_base, valuation.effective_hurdle(hurdle_eff, settings["regime"]), settings["buffer"])
+    signal = valuation.quaternary_signal(
+        eff_real_base, valuation.effective_hurdle(hurdle_eff, settings["regime"]),
+        ofz_real, settings["buffer"], regime=settings["regime"])
     # качественный гейт (owner-rule): «обычное» качество НЕ может быть ПОКУПАЙ.
     # Защита от value-trap и завышенного сигнала (фантомные/разовые дивы, дешёвые
     # некачественные имена). Понижаем на одну ступень: ПОКУПАЙ → ГРАНИЦА.
@@ -506,7 +511,7 @@ def evaluate_issuer(db: sqlite3.Connection, secid: str, macro_frag: dict | None 
 
     # ОБНУЛЯЮЩИЕ РФ-РИСКИ (red-team #5, trisk посчитан выше): режут ТЕЛО, MoS не спасает.
     # Острый → ВОЗДЕРЖИСЬ; повышенный → ПОКУПАЙ→ГРАНИЦА. Плюс градуированная премия уже в hurdle (#6).
-    if trisk.gate == "block" and signal != "ВОЗДЕРЖИСЬ":
+    if trisk.gate == "block" and signal not in ("ВОЗДЕРЖИСЬ", "ПРОДАВАЙ"):
         signal = "ВОЗДЕРЖИСЬ"
         warnings.append("Сигнал снят → ВОЗДЕРЖИСЬ: ОСТРЫЙ обнуляющий риск (режет тело, MoS не спасает) — "
                         + "; ".join(trisk.notes))

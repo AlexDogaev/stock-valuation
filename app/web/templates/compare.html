@@ -13,6 +13,7 @@
   .kl { font-size: 12px; padding: 2px 8px; border-radius: 0; }
   .kl-eq { color: var(--buy); } .kl-bond { color: #7fa8cf; } .kl-fx { color: var(--edge); }
   .sig-buy { color: var(--buy); } .sig-edge { color: var(--edge); } .sig-avoid { color: var(--avoid); }
+  .sig-sell { color: #fff; background: var(--avoid); padding: 1px 7px; border-radius: 4px; }
   .hurdle-row td { border-top: 2px dashed var(--edge); color: var(--edge); font-size: 12px; padding-top: 8px; }
 </style>
 {% endblock %}
@@ -46,7 +47,7 @@
 <script>
 let CMP = [], CFILT = "all", HURDLE = 0, DEFL = 0;
 const klass = k => k === "Акция" ? "kl-eq" : (k === "Замещайка" ? "kl-fx" : "kl-bond");
-const sigCls = s => s === "ПОКУПАЙ" ? "sig-buy" : (s === "ВОЗДЕРЖИСЬ" ? "sig-avoid" : "sig-edge");
+const sigCls = s => s === "ПОКУПАЙ" ? "sig-buy" : (s === "ПРОДАВАЙ" ? "sig-sell" : (s === "ВОЗДЕРЖИСЬ" ? "sig-avoid" : "sig-edge"));
 
 function renderRows() {
   const tb = document.getElementById("cmp-rows");

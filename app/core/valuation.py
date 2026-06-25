@@ -164,6 +164,21 @@ def ternary_signal(real: float, hurdle: float, buffer: float) -> str:
     return "ГРАНИЦА"
 
 
+def quaternary_signal(real: float, hurdle: float, ofz_real: float, buffer: float,
+                      regime: str = "спокойное") -> str:
+    """ПОКУПАЙ / ГРАНИЦА / ВОЗДЕРЖИСЬ / ПРОДАВАЙ. БЕНЧ = ОФЗ (безриск), не инфляция (спека §4,
+    фискальное доминирование). ВОЗДЕРЖИСЬ = бьёт ~ОФЗ, но ниже бара (держи, НЕ докупай).
+    ПРОДАВАЙ = реал ниже ОФЗ−буфер (есть строго лучшее — ОФЗ; держать иррационально, оценочно,
+    НЕ тайминг). В ШОК-режиме ПРОДАВАЙ снят (добор подешевевшего качества, не выход)."""
+    if real >= hurdle + buffer:
+        return "ПОКУПАЙ"
+    if regime.upper() != "ШОК" and real < ofz_real - buffer:
+        return "ПРОДАВАЙ"
+    if real < hurdle - buffer:
+        return "ВОЗДЕРЖИСЬ"
+    return "ГРАНИЦА"
+
+
 def effective_hurdle(hurdle_base: float, regime: str) -> float:
     """В режиме ШОК hurdle снимается (бери жадно подешевевшее качество)."""
     return 0.0 if regime.upper() == "ШОК" else hurdle_base

@@ -796,7 +796,13 @@ def screen_fx(db: sqlite3.Connection) -> dict:
     scenarios = outlook.fx_scenarios()           # [(1−p, базовый дрейф), (p, девальвация в шоке)]
     e_fx = outlook.e_fx()
     try:
-        fxb = mb.fetch_bonds(mb.CORP_BOARD, fx=True) + mb.fetch_bonds(mb.OFZ_BOARD, fx=True)
+        _corp_fx = mb.fetch_bonds(mb.CORP_BOARD, fx=True)
+        _sov_fx = mb.fetch_bonds(mb.OFZ_BOARD, fx=True)
+        for _b in _corp_fx:
+            _b["_sovereign"] = False
+        for _b in _sov_fx:
+            _b["_sovereign"] = True
+        fxb = _corp_fx + _sov_fx
     except Exception as e:  # noqa: BLE001
         return {"error": f"MOEX ISS недоступен: {type(e).__name__}", "bonds": [], "count": 0}
     # КРЕДИТ-ФИЛЬТР замещаек (находка Саши по Автом01CNY): защитный рукав = ИНВЕСТ-ГРЕЙД, НЕ ВДО.
@@ -807,11 +813,31 @@ def screen_fx(db: sqlite3.Connection) -> dict:
     clean = sorted([b for b in fxb if mb.is_sane(b, min_dur=0.5, ytm_lo=0.02, ytm_hi=0.12, min_trades=3)
                     and b["coupon_type"] in mb.CLASSIC and (b.get("listlevel") in (1, 2))],
                    key=lambda x: -x["num_trades"])[:60]
+    # КРЕДИТ ЗАМЕЩАЕК (Саша 25.06): спред над СУВЕРЕННЫМ РФ-ЗО той же валюты → PD → −PD×LGD (как у рублёвых
+    # бондов). РФ-ЗО (суверен) → спред 0 → драг 0; корпорат (ГТЛК/Акрон) → положит.спред → кредит-драг.
+    from app.core import credit_pd
+    LGD = credit_pd.LGD_DEFAULT
+    stress = 1.0 + 0.5 * macro_fragility(db)["F"]      # кредит ухудшается в хрупком макро (как у бондов)
+    sov_ytm: dict[str, float] = {}                     # валюта → нижний суверенный FX-YTM (бенчмарк безриска)
+    for b in clean:
+        if b.get("_sovereign"):
+            cur = b.get("faceunit", "FX")
+            sov_ytm[cur] = min(sov_ytm.get(cur, 9.9), b["ytm"])
     out: list[dict] = []
     for b in clean:
+        cur = b.get("faceunit", "FX")
+        base = sov_ytm.get(cur)
+        if b.get("_sovereign") or base is None:
+            spread_fx, pd_ann, pd_hz = (0.0 if b.get("_sovereign") else None), 0.0, 0.0
+        else:
+            spread_fx = max(0.0, b["ytm"] - base)
+            pd_ann = min(max(0.0, credit_pd.pd_market(spread_fx)) * stress, 0.99) if spread_fx > 0 else 0.0
+            pd_hz = 1.0 - (1.0 - pd_ann) ** max(b["duration_years"], 0.1)   # кумулятивная PD за срок
         fa = fxmod.assess_fx(scenarios=scenarios, carry=carry_val, hurdle=0.0, buffer=0.01,
                              coupon=b["ytm"], has_coupon_analog=True)   # купонный инструмент → не доминируем
         out.append({**b, "ytm_fx": b["ytm"], "e_fx_move": fa.e_fx_move,
+                    "pd": round(pd_ann, 4), "pd_horizon": round(pd_hz, 4),     # кредит-риск (спред над сувереном)
+                    "fx_spread": round(spread_fx, 4) if spread_fx is not None else None,
                     "e_return": fa.e_return,                            # избыток над carry
                     "e_return_total": round(b["ytm"] + e_fx, 4),       # полная рублёвая E[отдача]
                     "signal": fa.signal})

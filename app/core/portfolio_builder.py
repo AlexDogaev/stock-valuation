@@ -96,9 +96,13 @@ def build(db, *, horizon: int, equity_cap: float, exp_inflation: float, target_r
     for f in rf.get("bonds", []):
         if f["signal"] == "ВОЗДЕРЖИСЬ":
             continue
-        real = _fisher_real(f["ytm_fx"] + f.get("e_fx_move", 0.0), exp_inflation)   # FX-YTM + E[курс] над инфл
+        # реал = FX-YTM + E[курс] над инфл − КРЕДИТ (PD×LGD над сувереном РФ-ЗО) — симметрично рублёвым бондам.
+        # Раньше замещайка считалась gross-of-default → ГТЛК/Акрон (корпораты) ложно сияли (кредитный спред
+        # засчитан как чистая доходность).
+        real = _fisher_real(f["ytm_fx"] + f.get("e_fx_move", 0.0), exp_inflation) - (f.get("pd") or 0.0) * LGD
         fx.append({"secid": f["secid"], "name": f["name"], "asset": "Замещайка",
-                   "subtype": f.get("faceunit", "FX"), "real": round(real, 4), "shock_drag": 0.0})  # замещайка — девал-хедж
+                   "subtype": f.get("faceunit", "FX"), "real": round(real, 4), "shock_drag": 0.0,
+                   "pd_horizon": f.get("pd_horizon") or 0.0})  # замещайка — девал-хедж, но кредит вычтен
     fx.sort(key=lambda x: -x["real"])
 
     # ── ЗОЛОТАЯ НОГА (книга Гл.11): двойной выживальщик. Доходность ~0 реал (хранилище стоимости, не
@@ -159,7 +163,7 @@ def build(db, *, horizon: int, equity_cap: float, exp_inflation: float, target_r
     # золотая нога: выигрыш = девальвация + flight-to-safety скачок золота-USD (сильнее замещайки — двойной хедж)
     gold_hedge = goldw * (outlook.shock.fx_pct + GOLD_CRISIS_SPIKE) * 0.5
     bond_default = sum(h["weight"] * (h.get("pd_horizon") or 0.0) * LGD
-                       for h in holdings if h["asset"] == "Облигация")   # перм.дефолты бондов за срок
+                       for h in holdings if h["asset"] in ("Облигация", "Замещайка"))   # перм.дефолты бондов+замещаек
     # перманентные просадки портфеля (доля стоимости) по тяжести шока:
     eq_perm = abs(outlook.shock.equity_dd) * (1.0 - outlook.shock.recovery_1y)   # норм.шок: акции с V-отскоком
     central_dd = max(0.0, eqw * eq_perm + corpw * CORP_SHOCK_LOSS - fx_hedge - gold_hedge)

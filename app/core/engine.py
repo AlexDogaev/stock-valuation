@@ -13,7 +13,7 @@ from typing import Any
 
 from app.config import FORECAST_YEARS, DEFAULTS
 from app.core import valuation, structural, classify, rate, quality_markers, decision, tax, tectonic, tail_risk
-from app.core import breakthrough
+from app.core import breakthrough, fiscal
 from app.data.db import get_db, get_settings, get_macro, roic_years, effective_key_rate
 
 
@@ -185,6 +185,11 @@ def evaluate_issuer(db: sqlite3.Connection, secid: str, macro_frag: dict | None 
     # дефлятором. Якорь к КС (короткий ОФЗ-прокси). Кормит и бар сигнала (hurdle), и равновесный P/E (§3).
     _ofz_nominal = effective_key_rate(db) or 0.145
     ofz_real = _ofz_nominal - deflator
+    # ФИСКАЛЬНОЕ ДОМИНИРОВАНИЕ (§2): дисконт пылесоса — выгребание пула в ОФЗ → дисконт к P/E акций.
+    # Чистый множитель в равновесный P/E (НЕ в hurdle — отдельный канал от deval_score, блокер §10).
+    _fd = fiscal.fiscal_drain(deficit_trln=macro.get("fiscal_deficit_trln") or 7.5,
+                              plan_trln=macro.get("fiscal_plan_trln") or 3.786,
+                              gdp_trln=macro.get("gdp_trln") or 200.0)
 
     struct_res, mult, detailed = structural_for(r)
 
@@ -299,7 +304,7 @@ def evaluate_issuer(db: sqlite3.Connection, secid: str, macro_frag: dict | None 
     # fiscal_drain=0 в фазе 1 (дисконт пылесоса добавит §2/фаза 3). Интеграция (деизоляция→P/E) сохранена множителем.
     _eq_pe = valuation.equilibrium_pe(
         payout=valuation.MATURE_PAYOUT, ofz_nominal=_ofz_nominal, premium=settings["risk_premium"],
-        e_inflation=deflator, g_nominal=g_eff, passthrough=passthrough, fiscal_drain=0.0)
+        e_inflation=deflator, g_nominal=g_eff, passthrough=passthrough, fiscal_drain=_fd.drain_pp)
     normal_pe_eff = _eq_pe * _integ.terminal_pe_mult
 
     # зрелая оценка справедливой капы (если есть ROE/equity). Гордон применим → Гордон;

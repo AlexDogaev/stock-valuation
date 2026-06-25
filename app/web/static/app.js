@@ -253,6 +253,7 @@ async function initNwfMarker() {
   renderShock(r);             // форвардный риск ШОКА (headline — из движка hazard)
   renderBreakthrough(r.outlook && r.outlook.breakthrough);   // фронтирный рывок (книга Гл.14)
   renderRenovation(r.outlook && r.outlook.renovation);       // Реновация Триады Жильё-ЖКХ-Электро (Гл.15-17)
+  renderFiscalDrain(r.outlook && r.outlook.fiscal_drain);    // фискальное доминирование — дисконт пылесоса (§2)
   renderRateTrajectory(r);    // траектория ключевой ставки (Opus по пейсу + риторике)
 }
 
@@ -306,6 +307,31 @@ function renderRenovation(b) {
       <p class="shock-disc">⚠ Калиброванная гипотеза (Гл.15-17). Реализация = ТРИАЖ, не модернизационный бум (фискальные ножницы Гл.16). Реактивно-аварийно. Узел для минора — поставщики оборудования (кабель/трубы/металл/цемент), НЕ операторы (тариф).</p>
     </div>`;
   const btn = document.getElementById("rn-btn"), pop = document.getElementById("rn-pop");
+  if (btn && pop) {
+    btn.addEventListener("click", (e) => { e.stopPropagation(); pop.hidden = !pop.hidden; });
+    document.addEventListener("click", (e) => { if (!host.contains(e.target)) pop.hidden = true; });
+  }
+}
+
+// ── маркер «Пылесос» (фискальное доминирование §2): дисконт к акциям от выгребания пула в ОФЗ ──
+function renderFiscalDrain(f) {
+  const host = document.getElementById("fiscal-marker");
+  if (!host) return;
+  if (!f) { host.innerHTML = ""; return; }
+  const cls = f.level === "высокий" ? "avoid" : (f.level === "повышенный" ? "edge" : "muted");
+  host.innerHTML = `<button class="nwf-btn nwf-${cls}" id="fd-btn" title="Фискальное доминирование (§2): пул сбережений выгребается в ОФЗ → дисконт к равновесному P/E акций. ${f.level}.">
+      <span class="dot"></span> 🏦 Пылесос · ${(f.drain_pp*100).toFixed(1)}пп <span class="muted" style="font-weight:400">${f.level}</span></button>
+    <div class="nwf-pop" id="fd-pop" hidden>
+      <div class="nwf-pop-head nwf-${cls}">Дисконт пылесоса · ${(f.drain_pp*100).toFixed(1)}пп (${f.level}, интенс. ${Math.round(f.intensity*100)}%)</div>
+      <div class="nwf-alloc">Денег фиксированно, государству нужнее → пул сбережений выгребается в ОФЗ → акциям меньше бида → дисконт к равновесному P/E (НЕ в hurdle — отдельный канал от деваль-риска).</div>
+      <div class="nwf-rows">
+        <div class="nwf-row"><span class="nwf-k">дефицит, % ВВП (run-rate)</span><span class="nwf-v">${(f.deficit_pct_gdp*100).toFixed(1)}%</span></div>
+        <div class="nwf-row"><span class="nwf-k">превышение плана</span><span class="nwf-v">${Math.round(f.overshoot*100)}%</span></div>
+      </div>
+      <p class="nwf-note">${f.note}</p>
+      <p class="shock-disc">⚠ Калиброванная гипотеза (§2/§5). Считается от ёмкости пула (≈ВВП), не от долга. Ввод дефицита — ручной (Минфин помесячно, /Настройки).</p>
+    </div>`;
+  const btn = document.getElementById("fd-btn"), pop = document.getElementById("fd-pop");
   if (btn && pop) {
     btn.addEventListener("click", (e) => { e.stopPropagation(); pop.hidden = !pop.hidden; });
     document.addEventListener("click", (e) => { if (!host.contains(e.target)) pop.hidden = true; });

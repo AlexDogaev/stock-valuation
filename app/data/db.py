@@ -298,6 +298,10 @@ def init_db() -> None:
         _ensure_column(db, "macro", "urals", "REAL DEFAULT 60")                 # факт Urals, $/барр
         _ensure_column(db, "macro", "oil_cutoff", "REAL DEFAULT 60")            # цена отсечения, $/барр
         _ensure_column(db, "macro", "last_regime", "TEXT")                      # для детекции смены режима
+        # фискальное доминирование (§2): дисконт пылесоса. Ручной ввод Минфина (как ФНБ).
+        _ensure_column(db, "macro", "fiscal_deficit_trln", "REAL DEFAULT 7.5")   # дефицит-прогноз/run-rate, трлн ₽/год
+        _ensure_column(db, "macro", "fiscal_plan_trln", "REAL DEFAULT 3.786")    # плановый дефицит года, трлн ₽
+        _ensure_column(db, "macro", "gdp_trln", "REAL DEFAULT 200.0")            # номинальный ВВП, трлн ₽ (знаменатель)
         # дефолтные настройки (single user, id=1)
         row = db.execute("SELECT id FROM user_settings WHERE id = 1").fetchone()
         if row is None:

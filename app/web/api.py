@@ -83,13 +83,20 @@ def macro_outlook():
     """Верхний слой: макро-прогноз на горизонт = инфляция (база) + риск шока (вектор) + окно рывка."""
     from app.core import macro_outlook as mo
     from app.core import breakthrough as bt
+    from app.core import fiscal
+    from app.data.db import get_macro
     from datetime import date
     with get_db() as db:
         out = mo.build_outlook(db).as_dict()
         h = get_settings(db).get("forecast_years") or 1
+        m = get_macro(db)
     yr = date.today().year
     out["breakthrough"] = bt.breakthrough_window(yr, h)   # Гл.14: фронтирный рывок, окно К КОНЦУ горизонта
     out["renovation"] = bt.renovation_window(yr, h)       # Гл.15-17: Реновация Триады Жильё-ЖКХ-Электро
+    _fd = fiscal.fiscal_drain(deficit_trln=m.get("fiscal_deficit_trln") or 7.5,
+                              plan_trln=m.get("fiscal_plan_trln") or 3.786, gdp_trln=m.get("gdp_trln") or 200.0)
+    out["fiscal_drain"] = {"drain_pp": _fd.drain_pp, "intensity": _fd.intensity, "level": _fd.level,
+                           "deficit_pct_gdp": _fd.deficit_pct_gdp, "overshoot": _fd.overshoot, "note": _fd.note}
     return out
 
 

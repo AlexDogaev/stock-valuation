@@ -290,7 +290,13 @@ def evaluate_issuer(db: sqlite3.Connection, secid: str, macro_frag: dict | None 
         _ic = None
     _base_pe = settings.get("normal_pe") or valuation.NORMAL_PE
     _integ = integ.assess(_ic, base_pe=_base_pe)
-    normal_pe_eff = _base_pe * _integ.terminal_pe_mult
+    # РАВНОВЕСНЫЙ P/E (фискальное доминирование §3, рама A): payout/(r−g), бенч=ОФЗ, НЕ ∝1/инфл.
+    # fiscal_drain=0 в фазе 1 (дисконт пылесоса добавит §2/фаза 3). Интеграция (деизоляция→P/E) сохранена множителем.
+    _ofz_nominal = effective_key_rate(db) or 0.145
+    _eq_pe = valuation.equilibrium_pe(
+        payout=r["payout"] or 0.0, ofz_nominal=_ofz_nominal, premium=settings["risk_premium"],
+        e_inflation=deflator, g_nominal=g_eff, passthrough=passthrough, fiscal_drain=0.0)
+    normal_pe_eff = _eq_pe * _integ.terminal_pe_mult
 
     # зрелая оценка справедливой капы (если есть ROE/equity). Гордон применим → Гордон;
     # на росте (r≈g, «вне зоны») → EXIT-MULTIPLE (red-team #4 — Гордон ломается, не «бумага хуже»).
@@ -546,12 +552,13 @@ def evaluate_issuer(db: sqlite3.Connection, secid: str, macro_frag: dict | None 
             f"СУЩЕСТВОВАНИЕ цены, не ПОКУПКУ: отдача за горизонтом, безриск ОФЗ даст не меньше за то же время. "
             f"Брать ПО ФАКТУ приближения отдачи или с дисконтом, малой долей как опцион — не на вере.")
 
-    # v6 §1.1 ПОТОЛОК P/E = 1/hurdle (на акционерной прибыли): при hurdle+инфл ~23% → max P/E ~4 (+дивы ~5).
-    max_pe_hurdle = (1.0 / (_heff + deflator)) if (_heff + deflator) > 0 else None
-    if max_pe_hurdle and pe and pe > max_pe_hurdle * 1.25:   # +25% допуск (дивиденды растягивают потолок)
+    # ПОТОЛОК P/E = РАВНОВЕСНЫЙ P/E (фискальное доминирование §3): payout/(r−g), бенч=ОФЗ, НЕ ∝1/инфл.
+    # Прежняя форма 1/(hurdle+инфл) давала неверный знак в эмиссионной фазе (инфл↑→P/E↓, должно ↑) — заменена.
+    max_pe_hurdle = normal_pe_eff if normal_pe_eff and normal_pe_eff > 0 else None
+    if max_pe_hurdle and pe and pe > max_pe_hurdle * 1.25:   # +25% допуск
         warnings.append(
-            f"P/E {pe:.1f} ВЫШЕ потолка под hurdle (~{max_pe_hurdle:.1f} = 1/(hurdle+инфл); дивы растягивают до "
-            f"~{max_pe_hurdle*1.25:.1f}). Цена структурно дорога относительно требуемой доходности (§1.1).")
+            f"P/E {pe:.1f} ВЫШЕ равновесного (~{max_pe_hurdle:.1f} = payout/(ОФЗ+премия−g+непереложенная_инфл); "
+            f"допуск до ~{max_pe_hurdle*1.25:.1f}). Цена структурно дорога против фиск.-доминантного равновесия (§3).")
 
     # матрица §1: вердикт = пересечение [маркер качества] × [зона цены].
     # Зона из сигнала (буфер = margin of safety); «оптимизм в цене» (§7) → expensive.

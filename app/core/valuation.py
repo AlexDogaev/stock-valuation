@@ -117,6 +117,24 @@ def fair_pe_growth(*, g: float, r: float, payout: float, exit_pe: float, years: 
     return div_pv + (x ** n) * exit_pe                      # + PV терминальной стоимости (выход по exit_pe)
 
 
+EQ_PE_FLOOR = 0.04   # пол спреда (r−g): иначе равновесный P/E → ∞ при r≈g (растущие)
+EQ_PE_CAP = 30.0     # потолок (санити для exit-multiple)
+
+
+def equilibrium_pe(*, payout: float, ofz_nominal: float, premium: float, e_inflation: float,
+                   g_nominal: float, passthrough: float, fiscal_drain: float = 0.0,
+                   floor: float = EQ_PE_FLOOR, cap: float = EQ_PE_CAP) -> float:
+    """Равновесный P/E = payout/(r−g) (фискальное доминирование, спека §3, рама A).
+
+    БЕНЧ = ОФЗ (безриск), НЕ инфляция. НЕ ∝1/инфляция (это давало неверный знак в эмиссионной фазе).
+    Спред = (ОФЗ_ном + страновая_премия + дисконт_пылесоса) − g_ном + инфл·(1−перенос).
+    Инфляция входит ТОЛЬКО непереложенной частью: репрайсер (перенос→1) → инфл сокращается, P/E выше;
+    тариф/ценопрессинг (перенос→0) → полная инфл в знаменателе → P/E раздавлен. fiscal_drain (§2) сжимает всех."""
+    spread = (ofz_nominal + premium + fiscal_drain) - g_nominal + e_inflation * (1.0 - passthrough)
+    pe = (payout or 0.0) / max(floor, spread)
+    return min(cap, max(0.0, pe))
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Тест достоверности (зона r − g), SPEC §4.2
 # ─────────────────────────────────────────────────────────────────────────────

@@ -111,6 +111,7 @@ TAIL_PREMIUM_PP = 0.012     # +1.2пп к hurdle за каждый балл об
 TAIL_PREMIUM_CAP = 0.05     # потолок премии (выше — гейт всё равно снимет сигнал)
 WAIT_PREMIUM = 0.05         # v6 §1.5 ЗАМОК: forward-история (группа Б) → ПОКУПАЙ только с ДИСКОНТОМ
 RENOVATION_G_MAX = 0.010    # узел реновации (Гл.16): потолок надбавки к g за детерм. многолетний спрос замены
+PE_REVERSION_RATE = 0.15    # пылесос §2: годовая скорость реверсии P/E к равновесному (~56% разрыва за 5л)
 # Инфляционный перенос: дефлятор включает шок-инфляцию (E[инфл]), но номинальный g её не отражает.
 # Имена с ценовой властью перекладывают инфляцию в номинал → кредитуем g на перенос × шок-инфляцию.
 # Перенос = обратная функция ценопрессинга: 0 (свободно репрайсят) → 0.8; 2 (тариф) → 0 (ест инфляцию).
@@ -352,6 +353,15 @@ def evaluate_issuer(db: sqlite3.Connection, secid: str, macro_frag: dict | None 
         "fetched_at": r["fetched_at"],
     }
 
+    # ПЫЛЕСОС → СЖАТИЕ МУЛЬТИПЛИКАТОРА (§2, фискальное доминирование): если текущий P/E выше равновесного
+    # (fiscal_drain его опустил), мультипликатор реверсирует к равновесному со скоростью PE_REVERSION_RATE/год
+    # → ДИСКОНТ апсайда И реал.доходности (драг де-рейтинга, параллельно шок-драгу). АСИММЕТРИЯ: только ВНИЗ
+    # (P/E < равновесного НЕ ре-рейтим вверх — нет бида, дешёвые пылесосом не поднимаются).
+    _pe_rev_drag = 0.0
+    if pe and normal_pe_eff and pe > normal_pe_eff:
+        _mult_end = normal_pe_eff + (pe - normal_pe_eff) * (1.0 - PE_REVERSION_RATE) ** n
+        _pe_rev_drag = 1.0 - (_mult_end / pe) ** (1.0 / max(1, n))   # годовой драг де-рейтинга (>0)
+
     # прогноз на N лет (n определён выше): цена тела + доходность
     # посленалоговый слой (§5): дивы −налог ежегодно; курсовой рост — ЛДВ освобождает при
     # горизонте ≥3г / ИИС-3. Сигнал и сравнение с hurdle — на ПОСЛЕналоговой основе
@@ -363,7 +373,7 @@ def evaluate_issuer(db: sqlite3.Connection, secid: str, macro_frag: dict | None 
                        iis3=bool(settings.get("iis3", 0)))
     at_real = valuation.real_return(at.after_tax_nominal, deflator)
     tax_aware = bool(settings.get("tax_aware", 1))
-    eff_real_base = at_real if tax_aware else fr.real      # базовая реал. (шока-просадки нет)
+    eff_real_base = (at_real if tax_aware else fr.real) - _pe_rev_drag   # базовая реал. − де-рейтинг пылесоса (без шока)
     # ШОК-СКОРРЕКТИРОВАННАЯ реал. (Саша): вычитаем горизонтный драг просадки шока (equity_shock_drag).
     # Глубина просадки масштабируется валютным профилем (экспортёр мельче — хедж девальвации, A5 dom/export).
     # И КАЧЕСТВОМ (Саша 24.06): доказанные выжившие отыгрывают БОЛЬШУЮ часть просадки (Сбер: 2008→~2г,
@@ -374,7 +384,7 @@ def evaluate_issuer(db: sqlite3.Connection, secid: str, macro_frag: dict | None 
     _eq_drag = outlook.equity_shock_drag(n, recovery=_q_recovery) * _DD_SCALE.get(currency_profile, 0.8)
     eff_real = eff_real_base - _eq_drag                    # показываемая «РЕАЛ.» — с учётом шок-просадки
 
-    price_cagr_base = (1.0 + fr.g_final) * fr.compression - 1.0  # ценовой CAGR (без дивов, без шока)
+    price_cagr_base = (1.0 + fr.g_final) * fr.compression - 1.0 - _pe_rev_drag  # ценовой CAGR − де-рейтинг пылесоса (без шока)
     price_cagr = price_cagr_base - _eq_drag                      # С УЧ. ШОКА (драг просадки — это и есть обвал котировки)
     price_target = r["price"] * (1.0 + price_cagr) ** n if r["price"] else None
     forecast = {
@@ -383,7 +393,8 @@ def evaluate_issuer(db: sqlite3.Connection, secid: str, macro_frag: dict | None 
         "price_now": r["price"],
         "price_target": round(price_target, 2) if price_target else None,
         "price_upside": (1.0 + price_cagr) ** n - 1.0,            # рост котировки, С УЧ. ШОКА
-        "price_upside_base": (1.0 + price_cagr_base) ** n - 1.0,  # без шок-просадки (база)
+        "price_upside_base": (1.0 + price_cagr_base) ** n - 1.0,  # без шок-просадки (база), УЖЕ с де-рейтингом пылесоса
+        "pe_reversion_drag": round(_pe_rev_drag, 4),              # годовой драг де-рейтинга к равновесному P/E (§2)
         "total_return": (1.0 + fr.full_nominal) ** n - 1.0,       # с дивидендами (валовое)
         "real_return": (1.0 + eff_real) ** n - 1.0,               # над инфляцией, посленалогово, С УЧ. ШОКА
         "real_return_base": (1.0 + eff_real_base) ** n - 1.0,     # без шок-просадки (база)
@@ -569,6 +580,11 @@ def evaluate_issuer(db: sqlite3.Connection, secid: str, macro_frag: dict | None 
         warnings.append(
             f"P/E {pe:.1f} ВЫШЕ равновесного (~{max_pe_hurdle:.1f} = payout/(ОФЗ+премия−g+непереложенная_инфл); "
             f"допуск до ~{max_pe_hurdle*1.25:.1f}). Цена структурно дорога против фиск.-доминантного равновесия (§3).")
+    if _pe_rev_drag >= 0.005:
+        warnings.append(
+            f"ДИСКОНТ ПЫЛЕСОСА (§2): P/E {pe:.1f} > равновесного {normal_pe_eff:.1f} → реверсия мультипликатора "
+            f"−{_pe_rev_drag*100:.1f}%/год вычтена из апсайда И реал.доходности (фискальное доминирование сжимает "
+            f"мультипликаторы; нет бида на ре-рейтинг вверх). Прогнозная отдача дисконтирована на де-рейтинг.")
 
     # матрица §1: вердикт = пересечение [маркер качества] × [зона цены].
     # Зона из сигнала (буфер = margin of safety); «оптимизм в цене» (§7) → expensive.

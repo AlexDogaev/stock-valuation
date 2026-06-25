@@ -87,9 +87,16 @@ def macro_outlook():
     from app.data.db import get_macro
     from datetime import date
     with get_db() as db:
-        out = mo.build_outlook(db).as_dict()
+        _o = mo.build_outlook(db)
+        out = _o.as_dict()
         h = get_settings(db).get("forecast_years") or 1
         m = get_macro(db)
+    # felt-коридор (§6): дефлятор ± по неопределённости клина [1.6..2.4 vs центр 2.0]. После бенч=ОФЗ
+    # СИГНАЛ дефлятор-независим (инфл сокращается) — коридор влияет лишь на абсолютный реал%, не на вердикт.
+    _defl = _o.e_inflation(h)
+    out["deflator"] = round(_defl, 4)
+    out["deflator_corridor"] = [round(_defl * mo.ROSSTAT_RATIO_LO / mo.ROSSTAT_RATIO, 4),
+                                round(_defl * mo.ROSSTAT_RATIO_HI / mo.ROSSTAT_RATIO, 4)]
     yr = date.today().year
     out["breakthrough"] = bt.breakthrough_window(yr, h)   # Гл.14: фронтирный рывок, окно К КОНЦУ горизонта
     out["renovation"] = bt.renovation_window(yr, h)       # Гл.15-17: Реновация Триады Жильё-ЖКХ-Электро
